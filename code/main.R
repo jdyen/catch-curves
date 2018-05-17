@@ -16,3 +16,5 @@ source("./code/load-data.R")
 # check corrs in lagged flow data
 
 # set up mvn flow model (only have MC, TC, GP, SP)
+# size x species correlation matrix?
+#  size_corr %x% spp_corr
