@@ -89,5 +89,7 @@ mean_flow_stats <- do.call("rbind", mean_flow_stats)
 mean_flow_stats$system <- sys_tmp
 mean_flow_stats$reach <- reach_tmp
 
+mean_flow_stats$system <- gsub("MURRAY", "LOWERMURRAY", mean_flow_stats$system)
+
 # tidy workspace
 rm(i, pred_list, mean_seasonal_flow, sys_tmp, reach_tmp)

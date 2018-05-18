@@ -187,6 +187,8 @@ maxm_ann_flow_vec <- covn_ann_flow_vec <- rep(NA, nrow(alldat))
 mean_spwn_flow_vec <- cov_spwn_flow_vec <- rep(NA, nrow(alldat))
 mean_spwn_flow_tm1 <- covn_ann_flow_tm1 <- cov_spwn_flow_tm1 <- rep(NA, nrow(alldat))
 mean_spwn_flow_tm2 <- covn_ann_flow_tm2 <- cov_spwn_flow_tm2 <- rep(NA, nrow(alldat))
+mean_ann_flow_tm1 <- mean_spr_flow_tm1 <- mean_sum_flow_tm1 <- maxm_ann_flow_tm1 <- rep(NA, nrow(alldat))
+mean_ann_flow_tm2 <- mean_spr_flow_tm2 <- mean_sum_flow_tm2 <- maxm_ann_flow_tm2 <- rep(NA, nrow(alldat))
 for (i in seq_len(nrow(alldat))) {
   row_tmp <- which((mean_flow_stats$system == alldat$system[i]) &
                      (mean_flow_stats$reach == alldat$reach[i]) &
@@ -201,13 +203,18 @@ for (i in seq_len(nrow(alldat))) {
     row_tmp <- which((mean_flow_stats$system == alldat$system[i]) &
                        (mean_flow_stats$reach == alldat$reach_alt[i]) &
                        (mean_flow_stats$year == alldat$year[i]))
+  }
+  if (!length(row_tmp2)) {
     row_tmp2 <- which((mean_flow_stats$system == alldat$system[i]) &
                         (mean_flow_stats$reach == alldat$reach_alt[i]) &
                         (mean_flow_stats$year == (alldat$year[i] - 1)))
+  }
+  if (!length(row_tmp3)) {
     row_tmp3 <- which((mean_flow_stats$system == alldat$system[i]) &
                         (mean_flow_stats$reach == alldat$reach_alt[i]) & 
                         (mean_flow_stats$year == (alldat$year[i] - 2)))
   }
+  
   if (length(row_tmp)) {
     mean_ann_flow_vec[i] <- mean_flow_stats$mean_ann_flow[row_tmp]
     mean_spr_flow_vec[i] <- mean_flow_stats$mean_spr_flow[row_tmp]
@@ -216,9 +223,21 @@ for (i in seq_len(nrow(alldat))) {
     covn_ann_flow_vec[i] <- mean_flow_stats$cov_ann_flow[row_tmp]
     mean_spwn_flow_vec[i] <- mean_flow_stats$mean_spwn_flow[row_tmp]
     cov_spwn_flow_vec[i] <- mean_flow_stats$cov_spwn_flow[row_tmp]
+  }
+  if (length(row_tmp2)) {
+    mean_ann_flow_tm1[i] <- mean_flow_stats$mean_ann_flow[row_tmp2]
+    mean_spr_flow_tm1[i] <- mean_flow_stats$mean_spr_flow[row_tmp2]
+    mean_sum_flow_tm1[i] <- mean_flow_stats$mean_sum_flow[row_tmp2]
+    maxm_ann_flow_tm1[i] <- mean_flow_stats$max_ann_flow[row_tmp2]
     covn_ann_flow_tm1[i] <- mean_flow_stats$cov_ann_flow[row_tmp2]
     mean_spwn_flow_tm1[i] <- mean_flow_stats$mean_spwn_flow[row_tmp2]
     cov_spwn_flow_tm1[i] <- mean_flow_stats$cov_spwn_flow[row_tmp2]
+  }
+  if (length(row_tmp3)) {
+    mean_ann_flow_tm2[i] <- mean_flow_stats$mean_ann_flow[row_tmp3]
+    mean_spr_flow_tm2[i] <- mean_flow_stats$mean_spr_flow[row_tmp3]
+    mean_sum_flow_tm2[i] <- mean_flow_stats$mean_sum_flow[row_tmp3]
+    maxm_ann_flow_tm2[i] <- mean_flow_stats$max_ann_flow[row_tmp3]
     covn_ann_flow_tm2[i] <- mean_flow_stats$cov_ann_flow[row_tmp3]
     mean_spwn_flow_tm2[i] <- mean_flow_stats$mean_spwn_flow[row_tmp3]
     cov_spwn_flow_tm2[i] <- mean_flow_stats$cov_spwn_flow[row_tmp3]
@@ -231,9 +250,19 @@ alldat$maxaf <- maxm_ann_flow_vec
 alldat$covaf <- covn_ann_flow_vec
 alldat$mspwn <- mean_spwn_flow_vec
 alldat$cspwn <- cov_spwn_flow_vec
+
+alldat$mannf_tm1 <- mean_ann_flow_tm1
+alldat$msprf_tm1 <- mean_spr_flow_tm1
+alldat$msumf_tm1 <- mean_sum_flow_tm1
+alldat$maxaf_tm1 <- maxm_ann_flow_tm1
 alldat$covaf_tm1 <- covn_ann_flow_tm1
 alldat$mspwn_tm1 <- mean_spwn_flow_tm1
 alldat$cspwn_tm1 <- cov_spwn_flow_tm1
+
+alldat$mannf_tm2 <- mean_ann_flow_tm2
+alldat$msprf_tm2 <- mean_spr_flow_tm2
+alldat$msumf_tm2 <- mean_sum_flow_tm2
+alldat$maxaf_tm2 <- maxm_ann_flow_tm2
 alldat$covaf_tm2 <- covn_ann_flow_tm2
 alldat$mspwn_tm2 <- mean_spwn_flow_tm2
 alldat$cspwn_tm2 <- cov_spwn_flow_tm2
@@ -314,17 +343,21 @@ catch_curve_fun <- function(x, sp) {
   
   x_sub <- x[which(x$species == sp), ]
   
+  flow_tmp <- x_sub[, grep("mannf$", colnames(x_sub)):grep("cspwn_tm2", colnames(x_sub))]
+  
   bins <- c(0, seq_len(max(x_sub$age, na.rm = TRUE) + 1)) + 0.5
-  # bins <- c(bins[1:7], bins[length(bins)])
   obs_unique <- paste(x_sub$system, paste0("reach", x_sub$reach), x_sub$year, sep = "_")
   
   obs_vec <- unique(obs_unique)
   
   out <- matrix(NA, nrow = length(obs_vec), ncol = (length(bins) - 1))
+  flow_data <- matrix(NA, nrow = length(obs_vec), ncol = ncol(flow_tmp))
   for (i in seq_along(obs_vec)) {
     dat_sub <- x_sub[which(obs_unique == obs_vec[i]), ]
     out[i, ] <- hist(dat_sub$age, breaks = bins, plot = FALSE)$counts
+    flow_data[i, ] <- apply(flow_tmp[which(obs_unique == obs_vec[i]), ], 2, mean, na.rm = TRUE)
   }
+  colnames(flow_data) <- colnames(flow_tmp)
   colnames(out) <- seq_len(ncol(out))
   rownames(out) <- obs_vec
   site_split <- strsplit(obs_vec, "_")
@@ -336,6 +369,7 @@ catch_curve_fun <- function(x, sp) {
   
   out <- list(age_dist = out,
               info = site_info,
+              flow = flow_data,
               bins = bins)
   
 }
@@ -346,10 +380,6 @@ size_dist_fun <- function(x, sp, nbins = 5) {
   x_sub <- x[which(x$species == sp), ]
   
   bins <- c(0, 100, 250, 400, 600, 1000, 1500, 15000, max(x_sub$weight, na.rm = TRUE))
-  # bins <- exp(seq(0, log(max(x_sub$weight, na.rm = TRUE)), length = nbins))
-  # bins <- quantile(x_sub$weight, p = seq(0, 1, length = nbins), na.rm = TRUE)
-  # bins[1] <- 0
-  # bins <- seq(0, max(x_sub$weight, na.rm = TRUE), length = nbins)
   obs_unique <- paste(x_sub$system, paste0("reach", x_sub$reach), x_sub$year, sep = "_")
   
   obs_vec <- unique(obs_unique)
@@ -379,3 +409,17 @@ gp_catch_curve <- catch_curve_fun(alldat, sp = "goldenperch")
 sp_catch_curve <- catch_curve_fun(alldat, sp = "silverperch")
 tc_catch_curve <- catch_curve_fun(alldat, sp = "troutcod")
 
+rm(catch_curve_fun, coef_extract, coefs, cov_spwn_flow_tm1, cov_spwn_flow_tm2,
+   cov_spwn_flow_tmp, cov_spwn_flow_vec, covn_ann_flow_tm1, covn_ann_flow_tm2,
+   covn_ann_flow_vec, dat_tmp, filter_fun, i, length_to_age,
+   length_weight_conversion, length_weight_conversion_sra, max_fun,
+   maxm_ann_flow_tm1, maxm_ann_flow_tm2, maxm_ann_flow_vec,
+   mean_ann_flow_tm1, mean_ann_flow_tm2, mean_ann_flow_vec,
+   mean_flow_stats, mean_spr_flow_tm1, mean_spr_flow_tm2,
+   mean_spr_flow_vec, mean_spwn_flow_tm1, mean_spwn_flow_tm2,
+   mean_spwn_flow_tmp, mean_spwn_flow_vec, mean_sum_flow_tm1,
+   mean_sum_flow_tm2, mean_sum_flow_vec, na_sub, oti_data,
+   ovens_data, ovens_data2, params_all, predictors,
+   reach_no, row_sub, row_tmp, row_tmp2, row_tmp3,
+   size_dist_fun, snags_data, snags_data2, sp_sub, sp_tmp, sp_to_rm,
+   spawning_flow_data, subset, sys_name, system_sub)
