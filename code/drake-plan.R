@@ -4,7 +4,7 @@ library(greta)
 
 # source functions
 source("./code/data-helpers.R")
-#source("./code/greta-helpers.R")
+source("./code/greta-helpers.R")
 source("./code/data-helpers.R")
 
 # create workflow
@@ -28,6 +28,7 @@ plan <- drake_plan(
   catch_curves = create_catch_curves(final_data),
   analysis_data = prepare_analysis_data(catch_curves, n_class = 6), 
   flow_data_pc = calc_flow_pc(analysis_data$flow, scale = FALSE),
+  greta_model = prepare_greta_model(analysis_data, flow_data_pc, n_pc = 3),
   strings_in_dots = "literals"
 )
 

@@ -34,7 +34,7 @@ na_replace_fun <- function(x) {
   
 }
 
-calc_flow_pc <- function(flow, scale = FALSE) {
+calc_flow_pc <- function(flow, scale = FALSE, nkeep = 3) {
   
   flow <- apply(flow, 2, na_replace_fun)
   if (scale)
@@ -760,6 +760,9 @@ prepare_analysis_data <- function(catch_curves, n_class = 6) {
   colnames(flow_out) <- colnames(catch_curves[[1]]$flow)
   bins_all <- catch_curves[[1]]$bins[seq_len(n_class)]
   info_out <- data.frame(system = system, reach = reach, year = year)
+  
+  # convert NAs to zeros
+  age_out <- ifelse(is.na(age_out), 0, age_out)
 
   # collate output
   out <- list(age = age_out,

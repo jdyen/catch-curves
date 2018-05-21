@@ -1,8 +1,8 @@
 # greta scripts for catch curve analysis
 
 # create separable covariance function from two component covariances
-create_greta_covar <- function(n_sp, n_age,
-                               eta_sp = 1, eta_age = 4,
+create_greta_covar <- function(n_sp, n_class,
+                               eta_sp = 1, eta_class = 4,
                                sigma_mean = 0.0, sigma_sd = 1.0) {
   
   if (length(sigma_mean) == 1)
@@ -11,60 +11,107 @@ create_greta_covar <- function(n_sp, n_age,
     sigma_sd <- rep(sigma_sd, 2)
   
   species_corr_est <- lkj_correlation(eta = eta_sp, dim = n_sp)
-  age_corr_est <- lkj_correlation(eta = eta_age, dim = n_age)
+  class_corr_est <- lkj_correlation(eta = eta_class, dim = n_class)
   species_sigma <- lognormal(mean = sigma_mean[1], sd = sigma_sd[1], dim = n_sp)
-  age_sigma <- lognormal(mean = sigma_mean[2], sd = sigma_sd[2], dim = n_age)
+  class_sigma <- lognormal(mean = sigma_mean[2], sd = sigma_sd[2], dim = n_class)
   species_covar_est <- (species_sigma %*% t(species_sigma)) * species_corr_est
-  age_covar_est <- age_sigma %*% t(age_sigma) * age_corr_est
-  covar_est <- kronecker(species_covar_est, age_covar_est)
+  class_covar_est <- class_sigma %*% t(class_sigma) * class_corr_est
+  covar_est <- kronecker(species_covar_est, class_covar_est)
   
   covar_est
   
 }
 
 # set priors for covariate model
-prepare_greta_model <- function(stage_data, flow_data, info_data, n_sp, n_class) {
-
-  # calculate length of full response vector
-  n_class_sp <- (n_sp * n_class)
+prepare_greta_model <- function(data, flow_data = NULL, n_pc = 3) {
   
-  # pull out n_obs
-  n_obs <- nrow(stage_data)
+  # extract data
+  stage_data <- data$age
+  if (is.null(flow_data)) {
+    flow_data <- data$flow
+  } else {
+    flow_data <- flow_data$scores[, seq_len(n_pc)]
+  }
+  info_data <- data$info
+  n_sp <- data$n_sp
+  n_class <- data$n_class
+  n_obs <- data$n_obs
+  
+  # calculate indices used repeatedly
+  n_class_sp <- (n_sp * n_class)
+  sp <- rep(seq_len(n_sp), each = n_class)
+  class <- rep(seq_len(n_class), times = n_sp)
+  n_preds <- ncol(flow_data)
   
   # create a separable covariance matrix with spp and age components
   covar_mat <- create_greta_covar(n_sp = n_sp,
-                                  n_age = n_class)
-
-  # set priors
-  alpha_mean <- normal(mean = 0.0, sd = 1.0, dim = 1)
-  beta_mean <- normal(mean = 0.0, sd = 1.0, dim = 1)
-  alpha <- normal(mean = alpha_mean, sd = sigma_alpha, dim = n_sp)
-  beta <- normal(mean = beta_mean, sd = sigma_beta, dim = n_sp)
-  gamma <- normal(mean = 0.0, sd = sigma_gamma, dim = n_sp)
-  delta <- normal(mean = 0.0, sd = sigma_delta, dim = n_class)
-  kappa <- normal(mean = 0.0, sd = sigma_kappa, dim = n_class_sp)
-  # set linear predictor
-  # need to include year, reach (this must be river*reach, i.e., reach within river),
-  # river as random effects
-  # need a size * age random effect (I think)
-  # probably need a year * reach random effect (or year * river)
+                                  n_class = n_class)
   
-  #
-  # there will be a nsp * n_age vector of means
-  # this will need to be swept through a matrix that is the
-  # outer product of sp*age regression coefficients with 
-  # the flow data
+  # set priors
+  sigma_main <- lognormal(meanlog = 0.0, sdlog = 1.0, dim = n_class_sp)
 
-  # use centered MVN model 
-  # set likelihoods
-  # see if can setup a Stan-style normal() call with 
-  #   work done on the covariances outside of this -- will be
-  #   much faster and easier.
-  # otherwise will need to loop through multivariate_normal calls (although
-  #   check how nick is doing this with JSDMs)
+  # define mean vector
+  alpha <- normal(mean = 0.0, sd = 1.0, dim = 1)
+  alpha_sp <- normal(mean = 0.0, sd = 1.0, dim = n_sp)
+  alpha_class <- normal(mean = 0.0, sd = 1.0, dim = n_class)
+  alpha_sp_by_class <- normal(mean = 0.0, sd = 1.0, dim = n_class_sp)
+  Alpha <- alpha + alpha_sp[sp] + alpha_class[class] + alpha_sp_by_class
+
+  # define coefficient matrix  
+  beta <- normal(mean = 0.0, sd = 1.0, dim = n_preds)
+  beta_sp <- normal(mean = 0.0, sd = 1.0, dim = c(n_preds, n_sp))
+  beta_class <- normal(mean = 0.0, sd = 1.0, dim = c(n_preds, n_class))
+  beta_sp_by_class <- normal(mean = 0.0, sd = 1.0, dim = c(n_preds, n_class_sp))
+  Beta <- zeros(n_preds, n_class_sp)
+  for (i in seq_len(ncol(Beta)))
+    Beta[, i] <- beta + beta_sp[, sp[i]] + beta_class[, class[i]] + beta_sp_by_class[, i]
+
+  # define exchangeable terms (pseudo random effects)
+  river <- as.integer(as.factor(info_data$system))
+  year <- as.integer(as.factor(info_data$year))
+  river_by_year <- as.integer(as.factor(paste(info_data$system, info_data$year, collapse = "_")))
+  river_by_reach <- as.integer(as.factor(paste(info_data$system, info_data$reach, collapse = "_")))
+  nriver <- length(unique(river))
+  nyear <- length(unique(year))
+  nriver_by_year <- length(unique(river_by_year))
+  nriver_by_reach <- length(unique(river_by_reach))
+  gamma_river <- normal(mean = 0.0, sd = 1.0, dim = nriver)
+  gamma_year <- normal(mean = 0.0, sd = 1.0, dim = nyear)
+  gamma_river_by_year <- normal(mean = 0.0, sd = 1.0, dim = (nriver_by_year))
+  gamma_river_by_reach <- normal(mean = 0.0, sd = 1.0, dim = (nriver_by_reach))
+  gamma_river_by_sp <- normal(mean = 0.0, sd = 1.0, dim = c(nriver, n_sp))
+  gamma_year_by_sp <- normal(mean = 0.0, sd = 1.0, dim = c(nyear, n_sp))
+  gamma_river_by_class <- normal(mean = 0.0, sd = 1.0, dim = c(nriver, n_class))
+  gamma_year_by_class <- normal(mean = 0.0, sd = 1.0, dim = c(nyear, n_class))
+  gamma_river_by_sp_by_class <- normal(mean = 0.0, sd = 1.0, dim = c(nriver, n_class_sp))
+  gamma_year_by_sp_by_class <- normal(mean = 0.0, sd = 1.0, dim = c(nyear, n_class_sp))
+  Gamma <- zeros(n_obs, n_class_sp)
+  for (i in seq_len(ncol(Gamma))) {
+    Gamma[, i] <- gamma_river_by_sp[river, sp[i]] +
+      gamma_year_by_sp[year, sp[i]] +
+      gamma_river_by_class[river, class[i]] +
+      gamma_year_by_class[river, class[i]] +
+      gamma_river_by_sp_by_class[river, i] +
+      gamma_year_by_sp_by_class[year, i]
+  }
+  Gamma <- sweep(Gamma, 1,
+                 gamma_river[river] + gamma_year[year] +
+                   gamma_river_by_year[river_by_year] +
+                   gamma_river_by_reach[river_by_reach],
+                 "+")
+    
+  # calculate linear predictor from its components
+  mu <- sweep((flow_data %*% Beta + Gamma), 2, Alpha, "+")
+
+  # add MVN errors to IID mu values
   resid <- multivariate_normal(mean = rep(0, n_class_sp), Sigma = covar_mat, dim = n_obs)
-
-  #mod <- model()
+  mu_mvn <- mu + sweep(resid, 2, sigma_main, "+")
+  
+  # set likelihood
+  stage_data <- poisson(lambda = exp(mu_mvn))
+  
+  # compile model
+  mod <- model(Alpha, Beta, Gamma, mu, mu_mvn, covar_mat, sigma_main)
   
   mod
     
