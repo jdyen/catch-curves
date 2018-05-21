@@ -1,12 +1,5 @@
 # work out length-age relationship
 
-oti_data <- vector("list", length = 4)
-oti_data[[1]] <- read.csv("./data/MC.csv")
-oti_data[[2]] <- read.csv("./data/TC.csv")
-oti_data[[3]] <- read.csv("./data/YB.csv")
-oti_data[[4]] <- read.csv("./data/SP.csv")
-names(oti_data) <- c("murraycod", "troutcod", "goldenperch", "silverperch")
-
 filter_fun <- function(x) {
   
   x_id <- unique(x$ID)
@@ -47,4 +40,3 @@ length_to_age <- function(x, params) {
 
 }
 
-params_all <- t(sapply(oti_data, function(x) coef_extract(filter_fun(x))))
