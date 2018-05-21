@@ -1,6 +1,7 @@
 # load packages
 library(drake)
 library(greta)
+library(lubridate)
 
 # source functions
 source("./code/data-helpers.R")
@@ -29,6 +30,7 @@ plan <- drake_plan(
   analysis_data = prepare_analysis_data(catch_curves, n_class = 6), 
   flow_data_pc = calc_flow_pc(analysis_data$flow, scale = FALSE),
   greta_model = prepare_greta_model(analysis_data, flow_data_pc, n_pc = 3),
+  samples = draw_samples(greta_model, n_samples = 100, warmup = 100, chains = 1),
   strings_in_dots = "literals"
 )
 

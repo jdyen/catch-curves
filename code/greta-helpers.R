@@ -47,9 +47,6 @@ prepare_greta_model <- function(data, flow_data = NULL, n_pc = 3) {
   covar_mat <- create_greta_covar(n_sp = n_sp,
                                   n_class = n_class)
   
-  # set priors
-  sigma_main <- lognormal(meanlog = 0.0, sdlog = 1.0, dim = n_class_sp)
-
   # define mean vector
   alpha <- normal(mean = 0.0, sd = 1.0, dim = 1)
   alpha_sp <- normal(mean = 0.0, sd = 1.0, dim = n_sp)
@@ -69,8 +66,8 @@ prepare_greta_model <- function(data, flow_data = NULL, n_pc = 3) {
   # define exchangeable terms (pseudo random effects)
   river <- as.integer(as.factor(info_data$system))
   year <- as.integer(as.factor(info_data$year))
-  river_by_year <- as.integer(as.factor(paste(info_data$system, info_data$year, collapse = "_")))
-  river_by_reach <- as.integer(as.factor(paste(info_data$system, info_data$reach, collapse = "_")))
+  river_by_year <- as.integer(as.factor(apply(cbind(info_data$system, info_data$year), 1, paste, collapse = "_")))
+  river_by_reach <- as.integer(as.factor(apply(cbind(info_data$system, info_data$reach), 1, paste, collapse = "_")))
   nriver <- length(unique(river))
   nyear <- length(unique(year))
   nriver_by_year <- length(unique(river_by_year))
@@ -104,15 +101,25 @@ prepare_greta_model <- function(data, flow_data = NULL, n_pc = 3) {
   mu <- sweep((flow_data %*% Beta + Gamma), 2, Alpha, "+")
 
   # add MVN errors to IID mu values
-  resid <- multivariate_normal(mean = rep(0, n_class_sp), Sigma = covar_mat, dim = n_obs)
-  mu_mvn <- mu + sweep(resid, 2, sigma_main, "+")
-  
+  resid <- multivariate_normal(mean = rep(0.0, n_class_sp), Sigma = covar_mat, dim = n_obs)
+  mu_mvn <- mu + resid
+  ## SHOULD WORK (but is probably slower?):
+  # mvn_helper <- normal(mean = 0.0, sd = 1.0, dim = dim(mu))
+  # mu_mvn <- mu + mvn_helper %*% chol(covar_mat)
+     
   # set likelihood
-  stage_data <- poisson(lambda = exp(mu_mvn))
+  distribution(stage_data) <- poisson(lambda = exp(mu_mvn))
   
   # compile model
-  mod <- model(Alpha, Beta, Gamma, mu, mu_mvn, covar_mat, sigma_main)
+  mod <- model(Alpha, Beta, Gamma, mu, mu_mvn, covar_mat)
   
   mod
     
 }
+
+draw_samples <- function(mod, ...) {
+  
+  mcmc(mod, ...)
+  
+}
+
