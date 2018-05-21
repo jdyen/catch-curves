@@ -4,8 +4,8 @@ library(greta)
 
 # source functions
 source("./code/data-helpers.R")
-source("./code/greta-helpers.R")
-source("./code/load-data.R")
+#source("./code/greta-helpers.R")
+source("./code/data-helpers.R")
 
 # create workflow
 plan <- drake_plan(
@@ -26,10 +26,9 @@ plan <- drake_plan(
                                              "./data/YB.csv", "./data/SP.csv"))),
   final_data = add_age_data(subsetted_data, otolith_data),
   catch_curves = create_catch_curves(final_data),
+  analysis_data = prepare_analysis_data(catch_curves, n_class = 6), 
+  flow_data_pc = calc_flow_pc(analysis_data$flow, scale = FALSE),
   strings_in_dots = "literals"
 )
-
-config <- drake_config(plan)
-vis_drake_graph(config, targets_only = TRUE)
 
 make(plan)

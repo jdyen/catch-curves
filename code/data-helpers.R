@@ -716,7 +716,60 @@ create_catch_curves <- function(data) {
   catch_curves <- vector("list", length = length(sp_list))
   for (i in seq_along(sp_list))
     catch_curves[[i]] <- catch_curve_fun(data, sp = sp_list[i])
+  names(catch_curves) <- sp_list
   
   catch_curves
+  
+}
+
+# prepare species x age matrices
+prepare_analysis_data <- function(catch_curves, n_class = 6) {
+  
+  site_list <- sapply(catch_curves, function(x) apply(x$info, 1, paste, collapse = "_"))
+  site_flat <- unique(unlist(site_list))
+  
+  n_sp <- length(catch_curves)
+  
+  age_out <- matrix(NA, nrow = length(site_flat), ncol = (n_class * n_sp))
+  flow_out <- matrix(NA, nrow = length(site_flat), ncol = ncol(catch_curves[[1]]$flow))
+  system <- reach <- year <- rep(NA, length(site_flat))
+  for (i in seq_len(length(site_flat))) {
+    
+    row_ids <- lapply(site_list, function(x) which(x == site_flat[i]))
+    if (any(sapply(row_ids, length) > 1)) {
+      spp <- names(catch_curves)[sapply(row_ids) > 1]
+      row_tmp <- row_ids[sapply(row_ids) > 1]
+      stop(paste0("Observation ", row_tmp, " is being double counted for ", spp),
+           call. = FALSE)
+    }
+    age_tmp <- rep(NA, ncol(age_out))
+    flow_tmp <- rep(NA, ncol(flow_out))
+    for (j in seq_along(catch_curves)) {
+      if (length(row_ids[[j]])) {
+        age_tmp[((j - 1) * n_class + 1):(j * n_class)] <- catch_curves[[j]]$age_dist[row_ids[[j]], seq_len(n_class)]
+        system[i] <- as.character(catch_curves[[j]]$info$system[row_ids[[j]]])
+        reach[i] <- catch_curves[[j]]$info$reach[row_ids[[j]]]
+        year[i] <- catch_curves[[j]]$info$year[row_ids[[j]]]
+        flow_tmp <- catch_curves[[j]]$flow[row_ids[[j]], ]
+      }
+    }
+    age_out[i, ] <- age_tmp
+    flow_out[i, ] <- flow_tmp
+    
+  }
+  colnames(flow_out) <- colnames(catch_curves[[1]]$flow)
+  bins_all <- catch_curves[[1]]$bins[seq_len(n_class)]
+  info_out <- data.frame(system = system, reach = reach, year = year)
+
+  # collate output
+  out <- list(age = age_out,
+              flow = flow_out,
+              info = info_out,
+              bins = bins_all,
+              n_class = n_class,
+              n_sp = n_sp,
+              n_obs = nrow(age_out))
+  
+  out
   
 }
