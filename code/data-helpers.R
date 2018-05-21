@@ -1,3 +1,209 @@
+# helpers for catch curve analysis
+remove_correlated <- function(flow) {
+  
+  # calculate correlations > 0.7 and remove one at a time, taking left-most of the columns
+  #   correlated with the most other variables
+  cor_vals <- cor(flow, use = "complete")
+  sum_correlated <- apply(cor_vals, 2, function(x) sum(abs(x) > 0.7) - 1)
+  while(any(sum_correlated > 0)) {
+    cor_vals <- cor_vals[-max(which(sum_correlated == max(sum_correlated))), -max(which(sum_correlated == max(sum_correlated)))]
+    sum_correlated <- apply(cor_vals, 2, function(x) sum(abs(x) > 0.7) - 1)
+  }
+  flow[, match(names(sum_correlated), colnames(flow))]
+  
+}
+
+# define some helper functions
+max_fun <- function(x) {
+  
+  out <- NA
+  
+  if (any(!is.na(x)))
+    out <- max(x, na.rm = TRUE)
+  
+  out
+  
+}
+
+na_replace_fun <- function(x) {
+  
+  if (any(is.na(x))) 
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+
+  x
+  
+}
+
+calc_flow_pc <- function(flow, scale = FALSE) {
+  
+  flow <- apply(flow, 2, na_replace_fun)
+  if (scale)
+    flow <- scale(flow)
+  pc_out <- princomp(flow)
+  
+  pc_out
+  
+}
+
+# do this for all ages, then just focus on 1-3 year olds for some analyses
+catch_curve_fun <- function(x, sp) {
+  
+  x_sub <- x[which(x$species == sp), ]
+  
+  flow_tmp <- x_sub[, grep("mannf$", colnames(x_sub)):grep("cspwn_tm2", colnames(x_sub))]
+  
+  bins <- c(0, seq_len(max(x_sub$age, na.rm = TRUE) + 1)) + 0.5
+  obs_unique <- paste(x_sub$system, paste0("reach", x_sub$reach), x_sub$year, sep = "_")
+  
+  obs_vec <- unique(obs_unique)
+  
+  out <- matrix(NA, nrow = length(obs_vec), ncol = (length(bins) - 1))
+  flow_data <- matrix(NA, nrow = length(obs_vec), ncol = ncol(flow_tmp))
+  for (i in seq_along(obs_vec)) {
+    dat_sub <- x_sub[which(obs_unique == obs_vec[i]), ]
+    out[i, ] <- hist(dat_sub$age, breaks = bins, plot = FALSE)$counts
+    flow_data[i, ] <- apply(flow_tmp[which(obs_unique == obs_vec[i]), ], 2, mean, na.rm = TRUE)
+  }
+  colnames(flow_data) <- colnames(flow_tmp)
+  colnames(out) <- seq_len(ncol(out))
+  rownames(out) <- obs_vec
+  site_split <- strsplit(obs_vec, "_")
+  site_info <- data.frame(system = sapply(site_split, function(x) x[1]),
+                          reach = sapply(site_split, function(x) as.numeric(substr(x[2],
+                                                                                   start = nchar(x[2]),
+                                                                                   stop = nchar(x[2])))),
+                          year = sapply(site_split, function(x) as.numeric(x[3])))
+  
+  out <- list(age_dist = out,
+              info = site_info,
+              flow = flow_data,
+              bins = bins)
+  
+}
+
+# do this for all ages, then just focus on 1-3 year olds for some analyses
+size_dist_fun <- function(x, sp, nbins = 5) {
+  
+  x_sub <- x[which(x$species == sp), ]
+  
+  bins <- c(0, 100, 250, 400, 600, 1000, 1500, 15000, max(x_sub$weight, na.rm = TRUE))
+  obs_unique <- paste(x_sub$system, paste0("reach", x_sub$reach), x_sub$year, sep = "_")
+  
+  obs_vec <- unique(obs_unique)
+  
+  out <- matrix(NA, nrow = length(obs_vec), ncol = (length(bins) - 1))
+  for (i in seq_along(obs_vec)) {
+    dat_sub <- x_sub[which(obs_unique == obs_vec[i]), ]
+    out[i, ] <- hist(dat_sub$weight, breaks = bins, plot = FALSE)$counts
+  }
+  colnames(out) <- seq_len(ncol(out))
+  rownames(out) <- obs_vec
+  site_split <- strsplit(obs_vec, "_")
+  site_info <- data.frame(system = sapply(site_split, function(x) x[1]),
+                          reach = sapply(site_split, function(x) as.numeric(substr(x[2],
+                                                                                   start = nchar(x[2]),
+                                                                                   stop = nchar(x[2])))),
+                          year = sapply(site_split, function(x) as.numeric(x[3])))
+  
+  out <- list(size_dist = out,
+              info = site_info,
+              bins = bins)
+  
+}
+
+list_full_spp_names <- function() {
+  
+  # set up species names for plots
+  sp_names <- data.frame(full = c("Australian bass",
+                                  "Australian grayling",
+                                  "Australian smelt",
+                                  "Black bream",
+                                  "Bony bream",
+                                  "Brown trout",
+                                  "Carp",
+                                  "Carp gudgeon",
+                                  "Common galaxias",
+                                  "Dwarf flathead gudgeon",
+                                  "Eastern gambusia",
+                                  "Eel",
+                                  "Estuary perch",
+                                  "Flathead galaxias",
+                                  "Flathead gudgeon",
+                                  "Golden perch",
+                                  "Long-finned eel",
+                                  "Luderick",
+                                  "Mountain galaxias",
+                                  "Murray cod",
+                                  "Murray river rainbowfish",
+                                  "Obscure galaxias",
+                                  "Oriental weather loach",
+                                  "Pouched lamprey",
+                                  "Pygmy perch",
+                                  "Rainbow trout",
+                                  "Redfin",
+                                  "River blackfish",
+                                  "River garfish",
+                                  "Roach",
+                                  "Sea mullet",
+                                  "Short finned eel",
+                                  "Short headed lamprey",
+                                  "Silver perch",
+                                  "Southern pygmy perch",
+                                  "Tench",
+                                  "Trout cod",
+                                  "Tupong",
+                                  "Two spined blackfish",
+                                  "Unspecked hardyhead",
+                                  "Variegated pygmy perch",
+                                  "Western carp gudgeon",
+                                  "Yarra pygmy perch",
+                                  "Yellow eyed mullet"),
+                         code = as.character(levels(alldat$species)))
+  
+  sp_names
+  
+}
+
+filter_fun <- function(x) {
+  
+  x_id <- unique(x$ID)
+  x_len <- rep(NA, length(x_id))
+  x_age <- rep(NA, length(x_id))
+  
+  for (i in seq_along(x_id)) {
+    
+    x_sub <- x[which(x$ID == x_id[i]), ]
+    x_len[i] <- max(x_sub$Length)
+    x_age[i] <- max(x_sub$Age)
+    
+  }
+  
+  x_filtered <- data.frame(id = x_id,
+                           length = x_len,
+                           age = x_age)
+  
+  x_filtered
+  
+}
+
+coef_extract <- function(x_filtered) {
+  
+  params <- coef(lm(x_filtered$age ~ x_filtered$length))
+  names(params) <- c("intercept", "slope")
+  
+  params
+  
+}
+
+length_to_age <- function(x, params) {
+  
+  out <- round(params[1] + params[2] * x)
+  out <- ifelse(out <= 0, NA, out)
+  
+  out
+  
+}
+
 # functions to read in and load data
 
 get_data <- function(file) {
@@ -139,7 +345,7 @@ clean_spp <- function(data) {
     data <- data[-which(is.na(data$Common.Name)), ]
   
   data
-   
+  
 }
 
 calculate_length_conversions <- function(data) {
@@ -240,7 +446,7 @@ impute_weights <- function(data, length_conversions) {
   }
   
   data
-   
+  
 }
 
 clean_reaches <- function(data) {
@@ -358,7 +564,7 @@ calculate_flow_stats <- function(files) {
   mean_flow_stats$system <- gsub("MURRAY", "LOWERMURRAY", mean_flow_stats$system)
   
   mean_flow_stats
-
+  
 }
 
 add_flow_data <- function(data, mean_flow_stats) {
@@ -510,7 +716,7 @@ create_catch_curves <- function(data) {
   catch_curves <- vector("list", length = length(sp_list))
   for (i in seq_along(sp_list))
     catch_curves[[i]] <- catch_curve_fun(data, sp = sp_list[i])
-
+  
   catch_curves
   
 }

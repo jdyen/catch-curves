@@ -3,7 +3,8 @@ library(drake)
 library(greta)
 
 # source functions
-source("./code/helpers.R")
+source("./code/data-helpers.R")
+source("./code/greta-helpers.R")
 source("./code/load-data.R")
 
 # create workflow
