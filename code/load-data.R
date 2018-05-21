@@ -2,7 +2,7 @@
 
 get_data <- function(file) {
   
-  read.csv(paste0("./data/", file))
+  read.csv(file)
   
 }
 
@@ -45,7 +45,7 @@ compile_data <- function(vefmap_data, snags_data, ovens_data) {
                                "Maccullochella peelii peelii",
                                ovens_data$species)
   ovens_data$species <- factor(ovens_data$species)
-  ovens_data$common_name <- alldat$Common.Name[match(ovens_data$species, alldat$Scientific.Name)]
+  ovens_data$common_name <- vefmap_data$Common.Name[match(ovens_data$species, vefmap_data$Scientific.Name)]
   ovens_data <- data.frame(SYSTEM = rep("OVENS", nrow(ovens_data)),
                            SITE_CODE = paste0("Ov", ovens_data$site),
                            Reach = rep(1, nrow(ovens_data)),
@@ -63,12 +63,12 @@ compile_data <- function(vefmap_data, snags_data, ovens_data) {
                            YEAR = as.integer(ovens_data$YEAR))
   
   # compile all data
-  alldat <- rbind(alldat, ovens_data, snags_data)
+  data <- rbind(vefmap_data, ovens_data, snags_data)
   
   # reformat dates
-  alldat$Date <- dmy(alldat$Event_Date)
+  data$Date <- dmy(data$Event_Date)
   
-  alldat
+  data
   
 }
 
@@ -234,7 +234,7 @@ impute_weights <- function(data, length_conversions) {
       dat_tmp$WEIGHT[na_sub] <- exp(coefs[1] + coefs[2] * log(dat_tmp$totallength[na_sub]))
       
       # return estimated data to full data set
-      data[which(alldat$Common.Name == sp_tmp[i]), ] <- dat_tmp
+      data[which(data$Common.Name == sp_tmp[i]), ] <- dat_tmp
       
     }
   }
@@ -279,7 +279,7 @@ clean_reaches <- function(data) {
 calculate_flow_stats <- function(files) {
   
   # load predictor (flow) files into a list from all files with "to_use" suffix
-  pred_list <- files[grep("to_use", files)]
+  pred_list <- files
   predictors <- vector("list", length = length(pred_list))
   for (i in seq_along(pred_list)) 
     predictors[[i]] <- read.csv(paste0("./data/flow-data/", pred_list[i]))
@@ -470,10 +470,12 @@ load_otolith_data <- function(file_list) {
   
   otolith_data <- vector("list", length = length(file_list))
   for (i in seq_along(file_list))
-    otolith_data[[i]] <- read.csv(paste0("./data/", file_list[i])) 
+    otolith_data[[i]] <- read.csv(paste0(file_list[i])) 
   
   names(otolith_data) <- file_list
-  name_match <- match(c("MC.csv", "TC.csv", "YB.csv", "SP.csv"), file_list)
+  name_match <- match(c("./data/MC.csv", "./data/TC.csv",
+                        "./data/YB.csv", "./data/SP.csv"),
+                      file_list)
   names(otolith_data) <- c("murraycod", "troutcod", "goldenperch", "silverperch")[name_match]
   
   otolith_data <- t(sapply(otolith_data, function(x) coef_extract(filter_fun(x))))
