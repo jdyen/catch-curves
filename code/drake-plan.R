@@ -29,8 +29,10 @@ plan <- drake_plan(
   catch_curves = create_catch_curves(final_data),
   analysis_data = prepare_analysis_data(catch_curves, n_class = 6), 
   flow_data_pc = calc_flow_pc(analysis_data$flow, scale = FALSE),
-  greta_model = prepare_greta_model(analysis_data, flow_data_pc, n_pc = 3),
-  samples = draw_samples(greta_model, n_samples = 100, warmup = 100, chains = 1),
+  greta_model = saveRDS(prepare_greta_model(analysis_data, flow_data_pc, n_pc = 3),
+                        file = file_out("greta_model_compiled.RDS")),
+  samples = mcmc(readRDS("greta_model_compiled.RDS"), n_samples = 100, warmup = 100, chains = 1,
+                 initial_values = rep(0.0, length(greta_model$dag$example_parameters()))),
   strings_in_dots = "literals"
 )
 

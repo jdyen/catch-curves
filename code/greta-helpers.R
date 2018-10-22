@@ -23,7 +23,7 @@ create_greta_covar <- function(n_sp, n_class,
 }
 
 # set priors for covariate model
-prepare_greta_model <- function(data, flow_data = NULL, n_pc = 3) {
+prepare_greta_model <- function(data, flow_data = NULL, n_pc = 3, ...) {
   
   # extract data
   stage_data <- data$age
@@ -114,12 +114,5 @@ prepare_greta_model <- function(data, flow_data = NULL, n_pc = 3) {
   mod <- model(Alpha, Beta, Gamma, mu, mu_mvn, covar_mat)
   
   mod
-    
-}
-
-draw_samples <- function(mod, ...) {
-  
-  mcmc(mod, ...)
   
 }
-
