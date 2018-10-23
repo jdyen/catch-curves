@@ -55,7 +55,8 @@ names(size_out) <- names(flow_out) <- colnames(size_data)
 flow_out[[7]] <- NULL
 size_out[[7]] <- NULL
 
-# flatten sizes
+# compile size info
+### IDEALLY flatten this but is impossible(ish)
 size_binned <- vector('list', length = length(size_out))
 for (i in seq_along(size_out)) {
   size_binned[[i]] <- sapply(size_out[[i]], hist_fn, breaks = size_breaks)
@@ -106,7 +107,7 @@ for (i in seq_len(n_site)) {
                                           initial_state = c(mat$init[, i]),
                                           dens_param = mat$dens_param[i],
                                           dens_form = dens_type)
-} 
+}
 
 # connect sizes to ages
 alpha_set <- ifelse(is.na(size_age_obs), 0, 1)
