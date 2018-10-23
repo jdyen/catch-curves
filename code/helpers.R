@@ -97,17 +97,20 @@ lefkovitch_matrix <- function(n_stage, density_dependence, predictors, params = 
   coefs_fec <- normal(mean = param_list$fec_mean, sd = param_list$fec_sd, dim = c(n_pred, n_fec)) 
   
   # add additional noise to survival and fecundity parameters
-  sigma_year_surv <- normal(0.0, 10.0, truncation = c(0, Inf))
-  gamma_year_surv <- normal(0.0, sigma_year_surv, dim = c(n_obs, n_stage))
-  sigma_year_growth <- normal(0.0, 10.0, truncation = c(0, Inf))
-  gamma_year_growth <- normal(0.0, sigma_year_surv, dim = c(n_obs, n_stage - 1))
-  sigma_year_fec <- normal(0.0, 10.0, truncation = c(0, Inf))
-  gamma_year_fec <- normal(0.0, sigma_year_fec, dim = c(n_obs, n_fec))
+  # sigma_year_surv <- normal(0.0, 10.0, truncation = c(0, Inf))
+  # gamma_year_surv <- normal(0.0, sigma_year_surv, dim = c(n_obs, n_stage))
+  # sigma_year_growth <- normal(0.0, 10.0, truncation = c(0, Inf))
+  # gamma_year_growth <- normal(0.0, sigma_year_surv, dim = c(n_obs, n_stage - 1))
+  # sigma_year_fec <- normal(0.0, 10.0, truncation = c(0, Inf))
+  # gamma_year_fec <- normal(0.0, sigma_year_fec, dim = c(n_obs, n_fec))
   
   # setup linear predictors
-  surv_params <- ilogit(predictors %*% coefs_surv + gamma_year_surv)
-  growth_params <- ilogit(predictors %*% coefs_growth + gamma_year_growth)
-  fec_params <- exp(predictors %*% coefs_fec + gamma_year_fec)
+  # surv_params <- ilogit(predictors %*% coefs_surv + gamma_year_surv)
+  # growth_params <- ilogit(predictors %*% coefs_growth + gamma_year_growth)
+  # fec_params <- exp(predictors %*% coefs_fec + gamma_year_fec)
+  surv_params <- ilogit(predictors %*% coefs_surv)
+  growth_params <- ilogit(predictors %*% coefs_growth)
+  fec_params <- exp(predictors %*% coefs_fec)
   
   # construct leslie matrices
   lefkovitch_matrix <- zeros(n_obs, n_stage, n_stage)
@@ -136,10 +139,10 @@ lefkovitch_matrix <- function(n_stage, density_dependence, predictors, params = 
        coefs_fec = coefs_fec,
        surv_params = surv_params,
        fec_params = fec_params,
-       growth_params = growth_params,
-       gamma_year_surv = gamma_year_surv,
-       gamma_year_growth = gamma_year_growth,
-       gamma_year_fec = gamma_year_fec)
+       growth_params = growth_params)#,
+       # gamma_year_surv = gamma_year_surv,
+       # gamma_year_growth = gamma_year_growth,
+       # gamma_year_fec = gamma_year_fec)
   
 }
 

@@ -17,15 +17,16 @@ size_age_data <- read.csv('data/compiled-size-age-data.csv', row.names = 1, stri
 flow_data <- read.csv('data/compiled-flow-predictors.csv', row.names = 1, stringsAsFactors = FALSE)
 
 # model settings
-n_age <- 10
+n_age <- 7
 dens_type <- 'bh'
-size_breaks <- c(0, 50, 100, 200, 500, 1000, 2000, 5000, 60000)
+# size_breaks <- c(0, 50, 100, 200, 500, 1000, 2000, 5000, 60000)
+size_breaks <- c(0, 50, 200, 1000, 5000, 60000)
 n_size <- length(size_breaks) - 1
 
 # mcmc settings
-warmup <- 5000
-n_samples <- 5000
-chains <- 4
+warmup <- 200
+n_samples <- 200
+chains <- 2
 
 # filter survey and flow data to Murray cod
 flow_data <- flow_data[survey_data$Common.Name %in% c('Murray Cod', 'Murray cod'), ]
@@ -146,6 +147,7 @@ single_obs <- first_obs == final_obs
 # parameters
 survival <- mat$surv_params
 recruitment <- mat$fec_params
+growth <- mat$growth_params
 
 # convert CMR sizes to ages (use age_size_dist)
 size_first_capture <- as_data(matrix(hist(first_size_class,
@@ -162,7 +164,7 @@ nyears <- nyears[!single_obs]
 #
 
 # create vectors of fitted and observed data
-mu_vec <- do.call(c, size_dist)
+mu <- do.call(c, size_dist)
 size_vec <- do.call(c, size_binned)
 
 # extract parameters
@@ -177,18 +179,25 @@ gamma_year_fec <- mat$gamma_year_fec
 dens_param <- mat$dens_param
 
 # size obs model
-distribution(size_vec) <- poisson(mu_vec)
+distribution(size_vec) <- poisson(mu)
+
+# estimate age-structured vital rates
+age_survival <- survival %*% age_size_dist
+age_recruit <- recruitment %*% age_size_dist[n_size, ]
+age_growth <- growth %*% age_size_dist[seq_len(n_size - 1), ]
 
 # create greta model
-mod <- model(surv_coef, fec_coef, growth_coef, age_size_dist, mu_vec, dens_param)
+mod <- model(survival, recruitment, growth,
+             age_survival, age_recruit, age_growth,
+             mu)
 
 # set initial values
 inits <- initials(surv_coef = matrix(0.0, nrow(surv_coef), ncol(surv_coef)),
                   growth_coef = matrix(0.0, nrow(growth_coef), ncol(growth_coef)),
                   fec_coef = matrix(0.0, nrow(fec_coef), ncol(fec_coef)),
-                  gamma_year_surv = matrix(0.0, nrow(gamma_year_surv), ncol(gamma_year_surv)),
-                  gamma_year_growth = matrix(0.0, nrow(gamma_year_growth), ncol(gamma_year_growth)),
-                  gamma_year_fec = matrix(0.0, nrow(gamma_year_fec), ncol(gamma_year_fec)),
+                  # gamma_year_surv = matrix(0.0, nrow(gamma_year_surv), ncol(gamma_year_surv)),
+                  # gamma_year_growth = matrix(0.0, nrow(gamma_year_growth), ncol(gamma_year_growth)),
+                  # gamma_year_fec = matrix(0.0, nrow(gamma_year_fec), ncol(gamma_year_fec)),
                   init_abund = matrix(1.0, n_size, n_site),
                   dens_param = rep(1e-6, n_site))
 
