@@ -17,15 +17,15 @@ size_age_data <- read.csv('data/compiled-size-age-data.csv', row.names = 1, stri
 flow_data <- read.csv('data/compiled-flow-predictors.csv', row.names = 1, stringsAsFactors = FALSE)
 
 # model settings
-n_age <- 7
+n_age <- 6
 dens_type <- 'bh'
 # size_breaks <- c(0, 50, 100, 200, 500, 1000, 2000, 5000, 60000)
 size_breaks <- c(0, 50, 200, 1000, 5000, 60000)
 n_size <- length(size_breaks) - 1
 
 # mcmc settings
-warmup <- 200
-n_samples <- 200
+warmup <- 500
+n_samples <- 500
 chains <- 2
 
 # filter survey and flow data to Murray cod
@@ -156,6 +156,18 @@ size_first_capture <- as_data(matrix(hist(first_size_class,
                                      ncol = n_size))
 nyears <- final_obs - first_obs
 nyears <- nyears[!single_obs]
+
+# set up detection model
+p_detect <- beta(1, 1, dim = n_size)
+## NEED to replace zeros with imputed size class (need to int over all possible)
+p_obs <- observed * p_detect[size_id]
+## WANT to vectorise this and possibly avoid unnecessary calcs (assume fixed if size_t = size_tplus2?)
+for (i in seq_len(n_size))
+  p_obs <- p_obs + (1 - observed) * growth[size_to_size[i]] * (1 - p_detect[possible_size[i]])
+
+# id_detect <- unlist(apply(catch_size_class, 1, function(x) x[min(which(x > 0)):max(which(x > 0))]))
+# distribution(obs_vec) <- binomial(size = 1, prob = p_detect[id_detect])
+
 # 
 # calculate size at all captures
 #
@@ -189,15 +201,13 @@ age_growth <- growth %*% age_size_dist[seq_len(n_size - 1), ]
 # create greta model
 mod <- model(survival, recruitment, growth,
              age_survival, age_recruit, age_growth,
+             age_size_dist,
              mu)
 
 # set initial values
 inits <- initials(surv_coef = matrix(0.0, nrow(surv_coef), ncol(surv_coef)),
                   growth_coef = matrix(0.0, nrow(growth_coef), ncol(growth_coef)),
                   fec_coef = matrix(0.0, nrow(fec_coef), ncol(fec_coef)),
-                  # gamma_year_surv = matrix(0.0, nrow(gamma_year_surv), ncol(gamma_year_surv)),
-                  # gamma_year_growth = matrix(0.0, nrow(gamma_year_growth), ncol(gamma_year_growth)),
-                  # gamma_year_fec = matrix(0.0, nrow(gamma_year_fec), ncol(gamma_year_fec)),
                   init_abund = matrix(1.0, n_size, n_site),
                   dens_param = rep(1e-6, n_site))
 
@@ -211,20 +221,21 @@ samples <- mcmc(mod,
 # summarise fitted model
 mod_summary <- summary(samples)
 
+# pull out fitted vals
+fitted_vals <- mod_summary$quantiles[grep('mu\\[', rownames(mod_summary$quantiles)), ]
+
 # reconstruct Leslie matrices
-median_fec_coef <- mod_summary$quantiles[grep('fec_coef', rownames(mod_summary$quantiles)), '50%']
-median_surv_coef <- mod_summary$quantiles[grep('surv_coef', rownames(mod_summary$quantiles)), '50%']
-median_surv_coef <- matrix(median_surv_coef, ncol = n_age)
+recruitment_est <- mod_summary$quantiles[grep('^recruitment\\[', rownames(mod_summary$quantiles)), ]
+growth_est <- mod_summary$quantiles[grep('^growth\\[', rownames(mod_summary$quantiles)), ]
+survival_est <- mod_summary$quantiles[grep('^survival\\[', rownames(mod_summary$quantiles)), ]
 
 # project/test fit etc.
-survival_vals <- plogis(flow_mat %*% median_surv_coef)
-fecundity_vals <- exp(flow_mat %*% median_fec_coef)
-mats_est <- list()
-for (i in seq_len(nrow(survival_vals))) {
-  mat_tmp <- matrix(0, n_age, n_age)
-  mat_tmp[n_age, n_age] <- survival_vals[i, n_age]
-  lower_diag <- row(mat_tmp) - col(mat_tmp) == 1
-  mat_tmp[lower_diag] <- survival_vals[i, seq_len(n_age - 1)]
-  mat_tmp[1, n_age] <- fecundity_vals[i]
-  mats_est[[i]] <- mat_tmp
-}
+# mats_est <- list()
+# for (i in seq_len(nrow(survival_vals))) {
+#   mat_tmp <- matrix(0, n_age, n_age)
+#   mat_tmp[n_age, n_age] <- survival_vals[i, n_age]
+#   lower_diag <- row(mat_tmp) - col(mat_tmp) == 1
+#   mat_tmp[lower_diag] <- survival_vals[i, seq_len(n_age - 1)]
+#   mat_tmp[1, n_age] <- fecundity_vals[i]
+#   mats_est[[i]] <- mat_tmp
+# }
