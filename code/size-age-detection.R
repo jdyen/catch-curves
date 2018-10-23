@@ -56,7 +56,6 @@ flow_out[[7]] <- NULL
 size_out[[7]] <- NULL
 
 # compile size info
-### IDEALLY flatten this but is impossible(ish)
 size_binned <- vector('list', length = length(size_out))
 for (i in seq_along(size_out)) {
   size_binned[[i]] <- sapply(size_out[[i]], hist_fn, breaks = size_breaks)
@@ -86,21 +85,21 @@ all_systems <- unique(system_list)
 n_site <- length(all_systems)
 
 # initialise matrix model
-mat <- leslie_matrix(n_age = n_age,
-                     density_dependence = dens_type,
-                     predictors = flow_mat,
-                     params = list(fec_stages = n_age,
-                                   n_site = n_site,
-                                   surv_sd = 1.0,
-                                   fec_sd = 1.0))
+mat <- lefkovitch_matrix(n_stage = n_size,
+                         density_dependence = dens_type,
+                         predictors = flow_mat,
+                         params = list(fec_stages = n_size,
+                                       n_site = n_site,
+                                       surv_sd = 1.0,
+                                       fec_sd = 1.0))
 
 # set up model of dynamics
-age_dist <- vector('list', length = n_site)
+size_dist <- vector('list', length = n_site)
 for (i in seq_len(n_site)) {
-  age_dist[[i]] <- iterate_matrix_dynamic(matrix = mat$matrix[system_list == all_systems[i], , ],
-                                          initial_state = c(mat$init[, i]),
-                                          dens_param = mat$dens_param[i],
-                                          dens_form = dens_type)
+  size_dist[[i]] <- iterate_matrix_dynamic(matrix = mat$matrix[system_list == all_systems[i], , ],
+                                           initial_state = c(mat$init[, i]),
+                                           dens_param = mat$dens_param[i],
+                                           dens_form = dens_type)
 }
 
 # connect sizes to ages
@@ -110,11 +109,6 @@ age_size_dist <- dirichlet(alpha = alpha_set)
 # estimate size-age distribution from data
 size_sums <- apply(size_age_obs, 1, sum)
 distribution(size_age_obs) <- multinomial(size = size_sums, p = age_size_dist)
-
-# convert sizes to ages
-modelled_sizes <- vector('list', length = length(age_dist))
-for (i in seq_along(age_dist))
-  modelled_sizes[[i]] <- age_size_dist %*% age_dist[[i]]
 
 # mark-recapture model to estimate detection and survival probabilities
 # calculate size-based catch history for each individual
@@ -158,35 +152,27 @@ size_first_capture <- as_data(matrix(hist(first_size_class,
                                           plot = FALSE,
                                           breaks = c(0:n_size + 0.5))$count,
                                      ncol = n_size))
-age_first_capture <- size_first_capture %*% age_size_dist
-p_age_first_capture <- ones(nrow(survival), ncol(survival))
-for (i in seq_len(ncol(survival))) {
-  p_age_first_capture[, i] <- tapply(c(survival[, seq_len(i)]),
-                                     rep(seq_len(nrow(survival)), times = n_age),
-                                     'prod')
-}
-
 nyears <- final_obs - first_obs
 nyears <- nyears[!single_obs]
-p_mid_obs <- p_age_first_capture[idx, age_init + nyears - 1]
-
 # 
-# calculate age at all captures
+# calculate size at all captures
 #
-# calculate p(hist) = p(first_obs_age) * p(mid_obs_age) * p(final_obs_age)
+# calculate p(hist) = p(first_obs_size) * p(mid_obs_size) * p(final_obs_size)
 #    - calculate probs of all trajectories and then sort with idx?
 #
 
 # create vectors of fitted and observed data
-mu_vec <- do.call(c, modelled_sizes)
-size_vec <- c(size_mat)
+mu_vec <- do.call(c, size_dist)
+size_vec <- do.call(c, size_binned)
 
 # extract parameters
 mats <- mat$matrix
 surv_coef <- mat$coefs_surv
+growth_coef <- mat$coefs_growth
 fec_coef <- mat$coefs_fec
 init_abund <- mat$init
 gamma_year_surv <- mat$gamma_year_surv
+gamma_year_growth <- mat$gamma_year_growth
 gamma_year_fec <- mat$gamma_year_fec
 dens_param <- mat$dens_param
 
@@ -194,14 +180,16 @@ dens_param <- mat$dens_param
 distribution(size_vec) <- poisson(mu_vec)
 
 # create greta model
-mod <- model(surv_coef, fec_coef, age_size_dist, mu_vec, dens_param)
+mod <- model(surv_coef, fec_coef, growth_coef, age_size_dist, mu_vec, dens_param)
 
 # set initial values
 inits <- initials(surv_coef = matrix(0.0, nrow(surv_coef), ncol(surv_coef)),
+                  growth_coef = matrix(0.0, nrow(growth_coef), ncol(growth_coef)),
                   fec_coef = matrix(0.0, nrow(fec_coef), ncol(fec_coef)),
                   gamma_year_surv = matrix(0.0, nrow(gamma_year_surv), ncol(gamma_year_surv)),
+                  gamma_year_growth = matrix(0.0, nrow(gamma_year_growth), ncol(gamma_year_growth)),
                   gamma_year_fec = matrix(0.0, nrow(gamma_year_fec), ncol(gamma_year_fec)),
-                  init_abund = matrix(1.0, n_age, n_site),
+                  init_abund = matrix(1.0, n_size, n_site),
                   dens_param = rep(1e-6, n_site))
 
 # sample from model
