@@ -79,12 +79,6 @@ flow_mat <- do.call(rbind, flow_out)
 flow_mat[apply(flow_mat, 1, function(x) all(is.na(x))), ] <- rep(apply(flow_mat, 2, mean, na.rm = TRUE), each = sum(is.na(flow_mat[, 1])))
 flow_mat <- scale(flow_mat)
 
-# calculate binary catch history for each individual
-cmr_history <- with(cmr_data, tapply(weight, list(idfish, year), function(x) ifelse(length(x), 1, NA)))
-cmr_history <- ifelse(is.na(cmr_history), 0, 1)
-cmr_sizes <- with(cmr_data, tapply(weight, list(idfish, year), function(x) ifelse(length(x), x, NA)))
-cmr_sizes <- ifelse(is.na(cmr_sizes), 0, cmr_sizes)
-
 # setup model settings
 n_time <- sapply(size_out, length)
 system_list <- rep(names(size_out), times = n_time)
@@ -97,8 +91,8 @@ mat <- leslie_matrix(n_age = n_age,
                      predictors = flow_mat,
                      params = list(fec_stages = n_age,
                                    n_site = n_site,
-                                   surv_sd = 10.0,
-                                   fec_sd = 10.0))
+                                   surv_sd = 1.0,
+                                   fec_sd = 1.0))
 
 # set up model of dynamics
 age_dist <- vector('list', length = n_site)
@@ -123,7 +117,65 @@ for (i in seq_along(age_dist))
   modelled_sizes[[i]] <- age_size_dist %*% age_dist[[i]]
 
 # mark-recapture model to estimate detection and survival probabilities
-## ADD
+# calculate size-based catch history for each individual
+catch_size <- with(cmr_data, tapply(weight, list(idfish, year), mean))
+catch_size <- ifelse(is.na(catch_size), 0, catch_size)
+
+# observed at least once?
+observed <- apply(catch_size, 1, sum) > 0
+catch_size <- catch_size[observed, ]
+
+# convert to size classes
+catch_size_class <- matrix(cut(catch_size, size_breaks, labels = FALSE),
+                           ncol = ncol(catch_size))
+catch_size_class <- ifelse(is.na(catch_size_class), 0, catch_size_class)
+
+# first and final size classes
+first_size_class <- apply(catch_size_class, 1, function(x) x[min(which(x > 0))])
+final_size_class <- apply(catch_size_class, 1, function(x) x[max(which(x > 0))])
+
+# has it shrunk *many* classes?
+size_errors <- final_size_class < (first_size_class - 1)
+
+# if so, remove these observations
+catch_size_class <- catch_size_class[!size_errors, ]
+first_size_class <- first_size_class[!size_errors]
+final_size_class <- final_size_class[!size_errors]
+
+# calculate first and final observations
+first_obs <- apply(catch_size_class, 1, function(x) min(which(x > 0)))
+final_obs <- apply(catch_size_class, 1, function(x) max(which(x > 0)))
+
+# are any individuals never recaptured?
+single_obs <- first_obs == final_obs
+
+# parameters
+survival <- mat$surv_params
+recruitment <- mat$fec_params
+
+# convert CMR sizes to ages (use age_size_dist)
+size_first_capture <- as_data(matrix(hist(first_size_class,
+                                          plot = FALSE,
+                                          breaks = c(0:n_size + 0.5))$count,
+                                     ncol = n_size))
+age_first_capture <- size_first_capture %*% age_size_dist
+p_age_first_capture <- ones(nrow(survival), ncol(survival))
+for (i in seq_len(ncol(survival))) {
+  p_age_first_capture[, i] <- tapply(c(survival[, seq_len(i)]),
+                                     rep(seq_len(nrow(survival)), times = n_age),
+                                     'prod')
+}
+
+nyears <- final_obs - first_obs
+nyears <- nyears[!single_obs]
+p_mid_obs <- p_age_first_capture[idx, age_init + nyears - 1]
+
+# 
+# calculate age at all captures
+#
+# calculate p(hist) = p(first_obs_age) * p(mid_obs_age) * p(final_obs_age)
+#    - calculate probs of all trajectories and then sort with idx?
+#
 
 # create vectors of fitted and observed data
 mu_vec <- do.call(c, modelled_sizes)
