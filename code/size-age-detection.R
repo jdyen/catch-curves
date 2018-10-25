@@ -17,16 +17,15 @@ size_age_data <- read.csv('data/compiled-size-age-data.csv', row.names = 1, stri
 flow_data <- read.csv('data/compiled-flow-predictors.csv', row.names = 1, stringsAsFactors = FALSE)
 
 # model settings
-n_age <- 6
+n_age <- 10
 dens_type <- 'bh'
-# size_breaks <- c(0, 50, 100, 200, 500, 1000, 2000, 5000, 60000)
-size_breaks <- c(0, 50, 200, 1000, 5000, 60000)
+size_breaks <- c(0, 50, 100, 200, 500, 1000, 2000, 5000, 60000)
 n_size <- length(size_breaks) - 1
 
 # mcmc settings
-warmup <- 500
-n_samples <- 500
-chains <- 2
+warmup <- 2000
+n_samples <- 2000
+chains <- 3 
 
 # filter survey and flow data to Murray cod
 flow_data <- flow_data[survey_data$Common.Name %in% c('Murray Cod', 'Murray cod'), ]
@@ -145,6 +144,7 @@ final_obs <- apply(catch_size_class, 1, function(x) max(which(x > 0)))
 single_obs <- first_obs == final_obs
 
 # parameters
+surv_total <- mat$survival
 survival <- mat$surv_params
 recruitment <- mat$fec_params
 growth <- mat$growth_params
@@ -161,6 +161,8 @@ nyears <- nyears[!single_obs]
 p_detect <- beta(1, 1, dim = n_size)
 ## NEED to replace zeros with imputed size class (need to int over all possible)
 p_obs <- observed * p_detect[size_id]
+## COUlD ADD a a class to this with size_id = 0 for "unknown"?? (although that loses
+#     identifiability of p_detect when is observed)
 ## WANT to vectorise this and possibly avoid unnecessary calcs (assume fixed if size_t = size_tplus2?)
 for (i in seq_len(n_size))
   p_obs <- p_obs + (1 - observed) * growth[size_to_size[i]] * (1 - p_detect[possible_size[i]])
@@ -202,6 +204,7 @@ age_growth <- growth %*% age_size_dist[seq_len(n_size - 1), ]
 mod <- model(survival, recruitment, growth,
              age_survival, age_recruit, age_growth,
              age_size_dist,
+             surv_total,
              mu)
 
 # set initial values
@@ -228,6 +231,7 @@ fitted_vals <- mod_summary$quantiles[grep('mu\\[', rownames(mod_summary$quantile
 recruitment_est <- mod_summary$quantiles[grep('^recruitment\\[', rownames(mod_summary$quantiles)), ]
 growth_est <- mod_summary$quantiles[grep('^growth\\[', rownames(mod_summary$quantiles)), ]
 survival_est <- mod_summary$quantiles[grep('^survival\\[', rownames(mod_summary$quantiles)), ]
+age_survival_est <- mod_summary$quantiles[grep('^age_survival\\[', rownames(mod_summary$quantiles)), ]
 
 # project/test fit etc.
 # mats_est <- list()

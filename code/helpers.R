@@ -101,6 +101,17 @@ lefkovitch_matrix <- function(n_stage, density_dependence, predictors, params = 
   growth_params <- ilogit(predictors %*% coefs_growth)
   fec_params <- exp(predictors %*% coefs_fec)
   
+  ### NEED TO STANDARDISE SURV and GROWTH to give total survival
+  survival <- beta(1, 1, dim = n_stage)
+  for (i in seq_len(n_obs)) {
+    surv_params[i, seq_len(n_stage - 1)] <- surv_params[i, seq_len(n_stage - 1)] /
+      (surv_params[i, seq_len(n_stage - 1)] + growth_params[i, ])
+    growth_params[i, ] <- growth_params[i, ] /
+      (surv_params[i, seq_len(n_stage - 1)] + growth_params[i, ])
+  }
+  growth_params <- sweep(growth_params, 2, survival[seq_len(n_stage - 1)], '/')
+  surv_params <- sweep(surv_params, 2, survival, '/')
+  
   # construct leslie matrices
   lefkovitch_matrix <- zeros(n_obs, n_stage, n_stage)
   for (i in seq_len(n_stage - 1)) {
@@ -126,6 +137,7 @@ lefkovitch_matrix <- function(n_stage, density_dependence, predictors, params = 
        coefs_surv = coefs_surv,
        coefs_growth = coefs_growth,
        coefs_fec = coefs_fec,
+       survival = survival,
        surv_params = surv_params,
        fec_params = fec_params,
        growth_params = growth_params)
