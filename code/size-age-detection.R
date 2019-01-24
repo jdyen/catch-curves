@@ -17,19 +17,19 @@ size_age_data <- read.csv('data/compiled-size-age-data.csv', row.names = 1, stri
 flow_data <- read.csv('data/compiled-flow-predictors.csv', row.names = 1, stringsAsFactors = FALSE)
 
 # model settings
-n_age <- 10
-dens_type <- 'bh'
-size_breaks <- c(0, 50, 100, 200, 500, 1000, 2000, 5000, 60000)
+n_age <- 4
+dens_type <- greta.integrated:::beverton()
+size_breaks <- c(0, 50, 100, 200, 500, 1000, 2000, 10000, 60000)
 n_size <- length(size_breaks) - 1
 
 # mcmc settings
-warmup <- 2000
-n_samples <- 2000
-chains <- 3 
+warmup <- 1000
+n_samples <- 1000
+chains <- 2
 
 # filter survey and flow data to Murray cod
 flow_data <- flow_data[survey_data$Common.Name %in% c('Murray Cod', 'Murray cod'), ]
-survey_data <- survey_data[survey_data$Common.Name %in% c('Murray Cod', 'Murray cod'), ]
+survey_data <- survey_data[survey_data$Common.Name %in% c('murraycod', 'Murray Cod', 'Murray cod'), ]
 flow_data <- flow_data[!is.na(survey_data$Total.Sampled), ]
 survey_data <- survey_data[!is.na(survey_data$Total.Sampled), ]
 flow_data <- flow_data[survey_data$Total.Sampled > 0, ]
@@ -54,6 +54,10 @@ for (i in seq_len(ncol(size_data))) {
 names(size_out) <- names(flow_out) <- colnames(size_data)
 flow_out[[7]] <- NULL
 size_out[[7]] <- NULL
+
+## TEMPORARY: remove OVENS data due to missing weight data
+flow_out[[6]] <- NULL
+size_out[[6]] <- NULL
 
 # compile size info
 size_binned <- vector('list', length = length(size_out))
@@ -85,21 +89,20 @@ all_systems <- unique(system_list)
 n_site <- length(all_systems)
 
 # initialise matrix model
-mat <- lefkovitch_matrix(n_stage = n_size,
-                         density_dependence = dens_type,
-                         predictors = flow_mat,
-                         params = list(fec_stages = n_size,
-                                       n_site = n_site,
-                                       surv_sd = 1.0,
-                                       fec_sd = 1.0))
+mat <- leslie_matrix(n_age = n_age,
+                     density_dependence = dens_type,
+                     predictors = flow_mat,
+                     params = list(fec_stages = n_age,
+                                   n_site = n_site,
+                                   surv_sd = 1.0,
+                                   fec_sd = 1.0))
 
 # set up model of dynamics
-size_dist <- vector('list', length = n_site)
+age_dist <- vector('list', length = n_site)
 for (i in seq_len(n_site)) {
-  size_dist[[i]] <- iterate_matrix_dynamic(matrix = mat$matrix[system_list == all_systems[i], , ],
-                                           initial_state = c(mat$init[, i]),
-                                           dens_param = mat$dens_param[i],
-                                           dens_form = dens_type)
+  age_dist[[i]] <- iterate_matrix_dynamic(matrix = mat$matrix[system_list == all_systems[i], , ],
+                                          initial_state = c(mat$init[, i]),
+                                          density = dens_type)
 }
 
 # connect sizes to ages
@@ -108,7 +111,6 @@ age_size_dist <- dirichlet(alpha = alpha_set)
 
 # estimate size-age distribution from data
 size_sums <- apply(size_age_obs, 1, sum)
-distribution(size_age_obs) <- multinomial(size = size_sums, p = age_size_dist)
 
 # mark-recapture model to estimate detection and survival probabilities
 # calculate size-based catch history for each individual
@@ -140,8 +142,62 @@ final_size_class <- final_size_class[!size_errors]
 first_obs <- apply(catch_size_class, 1, function(x) min(which(x > 0)))
 final_obs <- apply(catch_size_class, 1, function(x) max(which(x > 0)))
 
+# number of years alive
+n_alive <- final_obs - first_obs
+
 # are any individuals never recaptured?
 single_obs <- first_obs == final_obs
+
+# focus on those with >1 observation
+n_alive <- n_alive[!single_obs]
+first_sizes <- first_size_class[!single_obs]
+first_seen <- first_obs[!single_obs]
+last_seen <- final_obs[!single_obs]
+
+# probabiity of age j given size class k (should be n_obs x n_age)
+p_age_first_capture <- age_size_dist[first_sizes, ]
+
+# create Phi = P(surv_n_alive | age_at_time_1) (n_alive x n_age)
+max_alive <- max(n_alive)
+survival_lmr <- mat$surv_params[system_list == 'LOWERMURRAY', ]
+survival_lmr <- cbind(survival_lmr,
+                      do.call(cbind,
+                              ## INDEXING ERRORS MIGHT BE DUE TO THIS
+                              lapply(seq_len(max_alive),
+                                     function(x) survival_lmr[, n_age])))
+
+# pre-calculate all possible survival trajectories
+first_seen_lifespan <- matrix(as.numeric(unlist(strsplit(unique(paste(first_seen, n_alive, sep = '_')), '_'))), ncol = 2, byrow = TRUE)
+id_match <- match(paste(first_seen, n_alive, sep = '_'), unique(paste(first_seen, n_alive, sep = '_')))
+idx <- apply(first_seen_lifespan, 1, function(x) x[1]:(x[1] + x[2]))
+surv_mat <- ones(nrow(first_seen_lifespan), n_age)
+for (i in seq_len(nrow(first_seen_lifespan))) {
+  mat_tmp <- survival_lmr[idx[[i]], ]
+  out <- NULL
+  for (j in seq_len(n_age)) {
+    out <- c(out, seq(1, length(idx[[i]]) ^ 2, by = (length(idx[[i]]) + 1)) + (j - 1) * length(idx[[i]]))
+  }
+  idy <- rep(seq_len(n_age), each = length(idx[[i]]))
+  surv_mat[i, ] <- tapply(mat_tmp[out], idy, 'prod')
+}
+
+# what are survival probabilities for each age at first sight?
+p_survival_hist_age <- surv_mat[id_match, ]
+
+# calculate P(survival_history | size = k)
+p_survival_hist_size <- rowSums(p_survival_hist_age * p_age_first_capture)
+
+# probs of binary capture history, assume detection is constant
+detection <- beta(1, 1)
+binary_capture_history <- apply(catch_size_class, 1, function(x) x[min(which(x > 0)):max(which(x > 0))])
+binary_capture_history <- ifelse(do.call(c, binary_capture_history) > 0, 1, 0)
+
+# probs of final detection (for each age??)
+# p(never_observed_again | final_size, final_obs) = \Sum_ages p(final_age | final_size) p(not_observed | final_obs, final_age) 
+# p_final_obs <- SOMETHING
+# not_detected is independent of age/size
+# survival depends on year and age
+# set up recursively (but still needs one entry for each individual)
 
 # parameters
 surv_total <- mat$survival
@@ -149,97 +205,78 @@ survival <- mat$surv_params
 recruitment <- mat$fec_params
 growth <- mat$growth_params
 
-# convert CMR sizes to ages (use age_size_dist)
-size_first_capture <- as_data(matrix(hist(first_size_class,
-                                          plot = FALSE,
-                                          breaks = c(0:n_size + 0.5))$count,
-                                     ncol = n_size))
-nyears <- final_obs - first_obs
-nyears <- nyears[!single_obs]
-
-# set up detection model
-p_detect <- beta(1, 1, dim = n_size)
-## NEED to replace zeros with imputed size class (need to int over all possible)
-p_obs <- observed * p_detect[size_id]
-## COUlD ADD a a class to this with size_id = 0 for "unknown"?? (although that loses
-#     identifiability of p_detect when is observed)
-## WANT to vectorise this and possibly avoid unnecessary calcs (assume fixed if size_t = size_tplus2?)
-for (i in seq_len(n_size))
-  p_obs <- p_obs + (1 - observed) * growth[size_to_size[i]] * (1 - p_detect[possible_size[i]])
-
-# id_detect <- unlist(apply(catch_size_class, 1, function(x) x[min(which(x > 0)):max(which(x > 0))]))
-# distribution(obs_vec) <- binomial(size = 1, prob = p_detect[id_detect])
-
-# 
-# calculate size at all captures
-#
-# calculate p(hist) = p(first_obs_size) * p(mid_obs_size) * p(final_obs_size)
-#    - calculate probs of all trajectories and then sort with idx?
-#
+# convert sizes to ages
+modelled_sizes <- vector('list', length = length(age_dist))
+for (i in seq_along(age_dist))
+  modelled_sizes[[i]] <- age_size_dist %*% age_dist[[i]]
 
 # create vectors of fitted and observed data
-mu <- do.call(c, size_dist)
+mu <- do.call(c, modelled_sizes)
 size_vec <- do.call(c, size_binned)
 
 # extract parameters
 mats <- mat$matrix
 surv_coef <- mat$coefs_surv
-growth_coef <- mat$coefs_growth
 fec_coef <- mat$coefs_fec
 init_abund <- mat$init
 gamma_year_surv <- mat$gamma_year_surv
-gamma_year_growth <- mat$gamma_year_growth
 gamma_year_fec <- mat$gamma_year_fec
 dens_param <- mat$dens_param
 
 # size obs model
 distribution(size_vec) <- poisson(mu)
 
-# estimate age-structured vital rates
-age_survival <- survival %*% age_size_dist
-age_recruit <- recruitment %*% age_size_dist[n_size, ]
-age_growth <- growth %*% age_size_dist[seq_len(n_size - 1), ]
+# size-age model
+distribution(size_age_obs) <- multinomial(size = size_sums, p = age_size_dist)
+
+# cmr model
+# distribution(binary_capture_history) <- binomial(size = 1, p = detection)
+# survival_hist_ones <- ones(length(p_survival_hist_size))
+# distribution(survival_hist_ones) <- binomial(size = 1, p = p_survival_hist_size)
+##
+# final_obs_ones <- ones(length(p_final_obs))
+# distribution(final_obs_ones) <- binomial(size = 1, p = p_final_obs)
 
 # create greta model
-mod <- model(survival, recruitment, growth,
-             age_survival, age_recruit, age_growth,
-             age_size_dist,
-             surv_total,
-             mu)
+mod <- model(survival, recruitment, dens_param,
+             age_size_dist, mu)
 
 # set initial values
 inits <- initials(surv_coef = matrix(0.0, nrow(surv_coef), ncol(surv_coef)),
-                  growth_coef = matrix(0.0, nrow(growth_coef), ncol(growth_coef)),
                   fec_coef = matrix(0.0, nrow(fec_coef), ncol(fec_coef)),
-                  init_abund = matrix(1.0, n_size, n_site),
+                  init_abund = matrix(1.0, n_age, n_site),
                   dens_param = rep(1e-6, n_site))
 
 # sample from model
 samples <- mcmc(mod,
+                sampler = hmc(Lmin = 10, Lmax = 200, epsilon = 0.1),
                 n_samples = n_samples, warmup = warmup,
                 thin = max(1, floor(n_samples / 5000)),
                 chains = chains,
                 initial_values = inits)
 
-# summarise fitted model
+# summarise fitted modelthe
 mod_summary <- summary(samples)
 
 # pull out fitted vals
 fitted_vals <- mod_summary$quantiles[grep('mu\\[', rownames(mod_summary$quantiles)), ]
 
+# pull out age-size distribution
+age_size_est <- mod_summary$quantiles[grep("age_size_dist\\[", rownames(mod_summary$quantiles)), ]
+
 # reconstruct Leslie matrices
 recruitment_est <- mod_summary$quantiles[grep('^recruitment\\[', rownames(mod_summary$quantiles)), ]
-growth_est <- mod_summary$quantiles[grep('^growth\\[', rownames(mod_summary$quantiles)), ]
 survival_est <- mod_summary$quantiles[grep('^survival\\[', rownames(mod_summary$quantiles)), ]
-age_survival_est <- mod_summary$quantiles[grep('^age_survival\\[', rownames(mod_summary$quantiles)), ]
+recruitment_median <- recruitment_est[, "50%"]
+survival_median <- matrix(survival_est[, "50%"], ncol = n_age)
 
-# project/test fit etc.
-# mats_est <- list()
-# for (i in seq_len(nrow(survival_vals))) {
-#   mat_tmp <- matrix(0, n_age, n_age)
-#   mat_tmp[n_age, n_age] <- survival_vals[i, n_age]
-#   lower_diag <- row(mat_tmp) - col(mat_tmp) == 1
-#   mat_tmp[lower_diag] <- survival_vals[i, seq_len(n_age - 1)]
-#   mat_tmp[1, n_age] <- fecundity_vals[i]
-#   mats_est[[i]] <- mat_tmp
-# }
+# compile fitted matrices
+mats_est <- list()
+for (i in seq_len(nrow(survival_median))) {
+  mat_tmp <- matrix(0, n_age, n_age)
+  mat_tmp[n_age, n_age] <- survival_median[i, n_age]
+  lower_diag <- row(mat_tmp) - col(mat_tmp) == 1
+  mat_tmp[lower_diag] <- survival_median[i, seq_len(n_age - 1)]
+  mat_tmp[1, n_age] <- recruitment_median[i]
+  mats_est[[i]] <- mat_tmp
+}

@@ -1,10 +1,12 @@
 # R code to relate weight to length in MDB fishes
 
+files_cur <- ls()
+
 # load data
-alldat <- read.csv("./data/VEFMAP_FISH_20171024.csv")
+alldat <- read.csv("../catch-curves/data/VEFMAP_FISH_20171024.csv")
 
 # load snags data set
-snags_data <- read.csv("./data/SNAGS_FISH_20171205.csv")
+snags_data <- read.csv("../catch-curves/data/SNAGS_FISH_20171205.csv")
 snags_data$date_new <- format(dmy_hms(snags_data$surveydate), format = "%d/%m/%Y")
 snags_data$YEAR <- sapply(strsplit(snags_data$date_new, "/"),
                           function(x) x[3])
@@ -30,7 +32,7 @@ snags_data2 <- data.frame(SYSTEM = rep("LOWERMURRAY", nrow(snags_data)),
                           YEAR = as.integer(snags_data$YEAR))
 
 # load ovens data and combine with alldat
-ovens_data <- read.table("./data/vba_ovens_2008_2017.csv", sep = "\t", header = TRUE)
+ovens_data <- read.table("../catch-curves/data/vba_ovens_2008_2017.csv", sep = "\t", header = TRUE)
 ovens_data$date_new <- format(dmy(ovens_data$date), format = "%d/%m/%Y")
 ovens_data$YEAR <- sapply(strsplit(ovens_data$date_new, "/"),
                           function(x) x[3])
@@ -180,4 +182,4 @@ coefs_all <- coefs_all[-which(is.na(coefs_all))]
 length_weight_conversion$generic <- apply(matrix(unlist(coefs_all), ncol = 2, byrow = TRUE),
                                           2, mean)
 
-rm(list = ls()[-grep("length_weight_conversion", ls())])
+rm(list = ls()[-match(c(files_cur, "length_weight_conversion"), ls())])

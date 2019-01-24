@@ -21,12 +21,12 @@ leslie_matrix <- function(n_age, density_dependence, predictors, params = list()
   n_fec <- length(param_list$fec_stages)
   
   # initialise effects of predictors on survival
-    ## SET UP hierarchical priors on these
-  coefs_surv <- normal(mean = param_list$surv_mean, sd = param_list$surv_sd, dim = c(n_pred, n_age))
+  mean_surv <- normal(param_list$surv_mean, 10.0, dim = 1)
+  coefs_surv <- normal(mean = mean_surv, sd = param_list$surv_sd, dim = c(n_pred, n_age))
   
   # initialise effects of predictors on fecundity
-   ## SET UP hierarchical priors on these
-  coefs_fec <- normal(mean = param_list$fec_mean, sd = param_list$fec_sd, dim = c(n_pred, n_fec)) 
+  mean_fec <- normal(param_list$fec_mean, 10.0, dim = 1)
+  coefs_fec <- normal(mean = mean_fec, sd = param_list$fec_sd, dim = c(n_pred, n_fec)) 
   
   # add additional noise to survival and fecundity parameters
   sigma_year_surv <- normal(0.0, 10.0, truncation = c(0, Inf))
