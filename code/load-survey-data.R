@@ -193,9 +193,9 @@ mid_ovens_data$SPECIES <- ifelse(mid_ovens_data$SPECIES == "Cyprinus carpio ",
                                  "Cyprinus carpio",
                                  mid_ovens_data$SPECIES)
 mid_ovens_data$Sampled <- apply(cbind(mid_ovens_data$Collected, mid_ovens_data$Observed), 1, sum, na.rm = TRUE)
-mid_ovens_clean <- data.frame(SYSTEM = rep("MIDOVENS", nrow(mid_ovens_data)),
+mid_ovens_clean <- data.frame(SYSTEM = rep("OVENS", nrow(mid_ovens_data)),
                               SITE_CODE = mid_ovens_data$Location,
-                              Reach = rep(NA, nrow(mid_ovens_data)),
+                              Reach = rep(1, nrow(mid_ovens_data)),
                               geartype = mid_ovens_data$Gear.Type,
                               Event_Date = dmy(mid_ovens_data$Date..DD.MM.YYYY.),
                               Pass.No = mid_ovens_data$Shot,
@@ -215,7 +215,7 @@ ovens2018_data <- read.csv("data/ovens-2018-data.csv", stringsAsFactors = FALSE)
 ovens2018_data$Sampled <- apply(cbind(ovens2018_data$Total.number.of.each.species.collected, ovens2018_data$No..Observed), 1, sum, na.rm = TRUE)
 ovens2018_clean <- data.frame(SYSTEM = rep("OVENS", nrow(ovens2018_data)),
                              SITE_CODE = ovens2018_data$Site..,
-                             Reach = rep(NA, nrow(ovens2018_data)),
+                             Reach = rep(1, nrow(ovens2018_data)),
                              geartype = ovens2018_data$Gear.Type,
                              Event_Date = dmy(ovens2018_data$Date.Start..DD.MM.YYYY.),
                              Pass.No = ovens2018_data$Shot.Number,
