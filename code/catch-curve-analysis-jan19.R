@@ -37,10 +37,10 @@ oti_analysis_data$site <- as.integer(as.factor(oti_analysis_data$site))
 oti_analysis_data$year <- as.integer(as.factor(oti_analysis_data$year))
 
 # length to age (vals for CT MC mod)
-len_par <- normal(150, 50, truncation = c(0, Inf))
-time_par <- normal(6, 50, truncation = c(0, Inf))
+len_par <- normal(150, 5, truncation = c(0, Inf))
+time_par <- normal(6, 1, truncation = c(0, Inf))
 k_par <- exponential(1 / 0.0011)
-c_par <- normal(-103, 50)
+c_par <- normal(-103, 5)
 
 # define a function to convert size to age based on model in Todd & Koehn 2008
 inverse_growth <- function(x, length_inf, time_zero, k_param, c_param) {
@@ -60,6 +60,8 @@ sigma_site_oti <- normal(0, sd(oti_analysis_data$age), truncation = c(0, Inf))
 sigma_year_oti <- normal(0, sd(oti_analysis_data$age), truncation = c(0, Inf))
 gamma_site_oti <- normal(0, sigma_site_oti, dim = length(unique(oti_analysis_data$site)))
 gamma_year_oti <- normal(0, sigma_year_oti, dim = length(unique(oti_analysis_data$year)))
+
+#### WHY NOT MAKE THIS A LINEAR MODEL??
 
 # linear predictor
 age_est <- inverse_growth(oti_analysis_data$length / 10,
@@ -87,43 +89,58 @@ age_vec <- inverse_growth(survey_data$length,
                           len_par, time_par, k_par, c_par)
 
 # setup PPM as a GLM
-n_int <- 100
-max_age <- 50
+n_int <- 200
+max_age <- 60
 
-# expand random effect data to include integration points
-system_expanded <- c(survey_data$system, rep(max(survey_data$system) + 1, n_int))
-site_expanded <- c(survey_data$site, rep(max(survey_data$site) + 1, n_int))
-year_expanded <- c(survey_data$year, rep(max(survey_data$year) + 1, n_int))
-dataset_expanded <- c(survey_data$dataset, rep(max(survey_data$dataset) + 1, n_int))
+# pull out indices fo rrandom effects
+nsystem <- max(survey_data$system)
+nsite <- max(survey_data$site)
+nyear <- max(survey_data$year)
+ndataset <- max(survey_data$dataset)
 
 # priors for PPM
 alpha_age <- normal(0, 1)
 beta_age <- normal(0, 1)
+
+# variance priors for random effects
 sigma_system <- normal(0, 1, truncation = c(0, Inf))
 sigma_site <- normal(0, 1, truncation = c(0, Inf))
 sigma_year <- normal(0, 1, truncation = c(0, Inf))
 sigma_dataset <- normal(0, 1, truncation = c(0, Inf))
-gamma_system <- normal(0, sigma_system, dim = max(system_expanded))
-gamma_site <- normal(0, sigma_site, dim = max(site_expanded))
-gamma_year <- normal(0, sigma_year, dim = max(year_expanded))
-gamma_dataset <- normal(0, sigma_dataset, dim = max(dataset_expanded))
+
+# main priors for random effects (expanded with an extra zero for integration points)
+gamma_system <- zeros(nsystem + 1)
+gamma_system[seq_len(nsystem)] <- normal(0, sigma_system, dim = nsystem)
+gamma_site <- zeros(nsite + 1)
+gamma_site[seq_len(nsite)] <- normal(0, sigma_site, dim = nsite)
+gamma_year <- zeros(nyear + 1)
+gamma_year[seq_len(nyear)] <- normal(0, sigma_year, dim = nyear)
+gamma_dataset <- zeros(ndataset + 1)
+gamma_dataset[seq_len(ndataset)] <- normal(0, sigma_dataset, dim = ndataset)
 
 # setup integration points for PPM
-integration_ages <- exp(seq(log(1e-2), log(max_age), length = n_int))
+integration_ages <- seq(0, max_age, length = n_int)
 eps <- .Machine$double.eps
-binsize <- diff(c(0, integration_ages))
+binsize <- diff(range(integration_ages)) / n_int
 
 # expand age data to include integration points
 age_expanded <- c(age_vec, integration_ages)
+system_expanded <- c(survey_data$system, rep(nsystem + 1, n_int))
+site_expanded <- c(survey_data$site, rep(nsite + 1, n_int))
+year_expanded <- c(survey_data$year, rep(nyear + 1, n_int))
+dataset_expanded <- c(survey_data$dataset, rep(ndataset + 1, n_int))
 
 # setup linear predictor and response variable
 response_vec <- rep(1:0, c(length(age_vec), n_int))
-offset <- c(rep(eps, length(age_vec)), binsize)
-lambda <- exp(log(offset) + alpha_age + beta_age * age_expanded) # +
-                # gamma_system[system_expanded] * age_expanded +
-                # gamma_site[site_expanded] +
-                # gamma_year[year_expanded] * age_expanded + 
-                # gamma_dataset[dataset_expanded])
+offset <- c(rep(eps, length(age_vec)), rep(binsize, n_int))
+mu <- alpha_age + beta_age * age_expanded # +
+  # gamma_system[system_expanded] * age_expanded +
+  # gamma_site[site_expanded] +
+  # gamma_year[year_expanded] * age_expanded +
+  # gamma_dataset[dataset_expanded]
+
+# need to add offset and exponentiate linear predictor
+lambda <- exp(log(offset) + mu)
 
 # set likelihood
 distribution(response_vec) <- poisson(lambda)
@@ -135,10 +152,18 @@ mod <- model(len_par, time_par, k_par, c_par,
              gamma_system, gamma_site, gamma_year, gamma_dataset,
              sigma_system, sigma_site, sigma_year, sigma_dataset)
 
-# sample from model
+# sample from modell
 init_set <- initials(len_par = 150, time_par = 6, k_par = 0.001, c_par = -100)
+# opt_est <- opt(mod, max_iterations = 500, tolerance = 1e-8,
+#                initial_values = init_set)
+# init_set <- initials(len_par = opt_est$par$len_par,
+#                      time_par = opt_est$par$time_par,
+#                      k_par = opt_est$par$k_par,
+#                      c_par = opt_est$par$c_par,
+#                      alpha_age = opt_est$par$alpha_age,
+#                      beta_age = opt_est$par$beta_age)
 draws <- mcmc(mod, initial_values = init_set,
-              n_samples = 1000, warmup = 1000)
+              n_samples = 2000, warmup = 2000)
 
 # summarise model outputs
 mod_summary <- summary(draws)
@@ -148,14 +173,13 @@ age_vec_est <- mod_summary$quantiles[grep("age_vec", rownames(mod_summary$quanti
 alpha_est <- mod_summary$quantiles[grep("alpha_age", rownames(mod_summary$quantiles)), ]
 beta_est <- mod_summary$quantiles[grep("beta_age", rownames(mod_summary$quantiles)), ]
 sys_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
-site_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
-yr_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
-ds_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
+site_est <- mod_summary$quantiles[grep("gamma_site", rownames(mod_summary$quantiles)), ]
+yr_est <- mod_summary$quantiles[grep("gamma_year", rownames(mod_summary$quantiles)), ]
+ds_est <- mod_summary$quantiles[grep("gamma_dataset", rownames(mod_summary$quantiles)), ]
 
 # predict fitted curves at integration points
-p <- exp(log(binsize) + alpha_est[3] + beta_est[3] * integration_ages +
-           sys_est[1, 3] + site_est[1, 3] + yr_est[1, 3] + ds_est[1, 3])
+p <- exp(alpha_est[3] + beta_est[3] * integration_ages)
 hist(age_vec_est[, 3], breaks = c(-0.5, integration_ages),
      col = grey(0.6), border = NA, las = 1,
-     xlab = "Age", ylab = "Density")
-lines(p ~ integration_ages, lwd = 3)
+     xlab = "Age", ylab = "Density", freq = FALSE)
+lines(c(p * binsize / sum(integration_ages)) ~ integration_ages, lwd = 3)
