@@ -37,21 +37,13 @@ oti_analysis_data$site <- as.integer(as.factor(oti_analysis_data$site))
 oti_analysis_data$year <- as.integer(as.factor(oti_analysis_data$year))
 
 # length to age (vals for CT MC mod)
-len_par <- normal(150, 5, truncation = c(0, Inf))
-time_par <- normal(6, 1, truncation = c(0, Inf))
-k_par <- exponential(1 / 0.0011)
-c_par <- normal(-103, 5)
+age_alpha <- normal(0, 10)
+age_beta <- normal(0, 10)
 
 # define a function to convert size to age based on model in Todd & Koehn 2008
-inverse_growth <- function(x, length_inf, time_zero, k_param, c_param) {
+inverse_growth <- function(x, int, slope) {
   
-  par1 <- 1 / k_param
-  ratio_param <- 1 - (time_zero / length_inf)
-  par2 <- 1 / (1 - c_param * ratio_param)
-  par3 <- (length_inf - time_zero) / (length_inf - x)
-  par4 <- c_param * ratio_param
-  
-  par1 * log(par2 * (par3 - par4))
+  int + slope * x
 
 }
 
@@ -61,19 +53,17 @@ sigma_year_oti <- normal(0, sd(oti_analysis_data$age), truncation = c(0, Inf))
 gamma_site_oti <- normal(0, sigma_site_oti, dim = length(unique(oti_analysis_data$site)))
 gamma_year_oti <- normal(0, sigma_year_oti, dim = length(unique(oti_analysis_data$year)))
 
-#### WHY NOT MAKE THIS A LINEAR MODEL??
-
 # linear predictor
-age_est <- inverse_growth(oti_analysis_data$length / 10,
-                          len_par, time_par, k_par, c_par) +
-  gamma_site_oti[oti_analysis_data$site] + gamma_year_oti[oti_analysis_data$year]
+length_scaled <- scale(oti_analysis_data$length)
+age_est <- inverse_growth(length_scaled,
+                          age_alpha, age_beta)
 
 # add likelihood for age model
-sigma_main <- normal(0, 10, truncation = c(0, Inf))
-distribution(oti_analysis_data$age) <- normal(age_est, sigma_main)
+sigma_oti <- normal(0, 10, truncation = c(0, Inf))
+distribution(oti_analysis_data$age) <- normal(age_est, sigma_oti, truncation = c(0, Inf))
 
 # data prep
-survey_data <- data.frame(length = alldat$totallength / 10,
+survey_data <- data.frame(length = alldat$totallength,
                           system = alldat$SYSTEM,
                           site = alldat$SITE_CODE,
                           year = alldat$YEAR,
@@ -85,8 +75,10 @@ survey_data$year <- as.integer(as.factor(survey_data$year))
 survey_data$dataset <- as.integer(as.factor(survey_data$dataset))
 
 # convert observed lengths to ages
-age_vec <- inverse_growth(survey_data$length,
-                          len_par, time_par, k_par, c_par)
+survey_length_scaled <- (survey_data$length - attributes(length_scaled)$`scaled:center`) /
+  attributes(length_scaled)$`scaled:scale`
+age_vec <- inverse_growth(survey_length_scaled,
+                          age_alpha, age_beta)
 
 # setup PPM as a GLM
 n_int <- 200
@@ -139,6 +131,8 @@ mu <- alpha_age + beta_age * age_expanded # +
   # gamma_year[year_expanded] * age_expanded +
   # gamma_dataset[dataset_expanded]
 
+## WHY CAN'T WE HAVE hist(age_vec) = f(age)? (there was a reason)
+
 # need to add offset and exponentiate linear predictor
 lambda <- exp(log(offset) + mu)
 
@@ -146,14 +140,16 @@ lambda <- exp(log(offset) + mu)
 distribution(response_vec) <- poisson(lambda)
 
 # compile model
-mod <- model(len_par, time_par, k_par, c_par,
-             age_vec,
+mod <- model(age_vec,
+             age_alpha, age_beta,
              alpha_age, beta_age,
-             gamma_system, gamma_site, gamma_year, gamma_dataset,
-             sigma_system, sigma_site, sigma_year, sigma_dataset)
+             sigma_oti)#,
+             # gamma_system, gamma_site, gamma_year, gamma_dataset,
+             # sigma_system, sigma_site, sigma_year, sigma_dataset)
 
 # sample from modell
-init_set <- initials(len_par = 150, time_par = 6, k_par = 0.001, c_par = -100)
+# init_set <- initials(len_par = 150, time_par = 6, k_par = 0.001, c_par = -100)
+init_set <- initials(age_alpha = 6.0, age_beta = 3.0)
 # opt_est <- opt(mod, max_iterations = 500, tolerance = 1e-8,
 #                initial_values = init_set)
 # init_set <- initials(len_par = opt_est$par$len_par,
@@ -163,7 +159,7 @@ init_set <- initials(len_par = 150, time_par = 6, k_par = 0.001, c_par = -100)
 #                      alpha_age = opt_est$par$alpha_age,
 #                      beta_age = opt_est$par$beta_age)
 draws <- mcmc(mod, initial_values = init_set,
-              n_samples = 2000, warmup = 2000)
+              n_samples = 4000, warmup = 4000)
 
 # summarise model outputs
 mod_summary <- summary(draws)
@@ -172,14 +168,16 @@ mod_summary <- summary(draws)
 age_vec_est <- mod_summary$quantiles[grep("age_vec", rownames(mod_summary$quantiles)), ]
 alpha_est <- mod_summary$quantiles[grep("alpha_age", rownames(mod_summary$quantiles)), ]
 beta_est <- mod_summary$quantiles[grep("beta_age", rownames(mod_summary$quantiles)), ]
-sys_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
-site_est <- mod_summary$quantiles[grep("gamma_site", rownames(mod_summary$quantiles)), ]
-yr_est <- mod_summary$quantiles[grep("gamma_year", rownames(mod_summary$quantiles)), ]
-ds_est <- mod_summary$quantiles[grep("gamma_dataset", rownames(mod_summary$quantiles)), ]
+alpha_oti_est <- mod_summary$quantiles[grep("age_alpha", rownames(mod_summary$quantiles)), ]
+beta_oti_est <- mod_summary$quantiles[grep("age_beta", rownames(mod_summary$quantiles)), ]
+# sys_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
+# site_est <- mod_summary$quantiles[grep("gamma_site", rownames(mod_summary$quantiles)), ]
+# yr_est <- mod_summary$quantiles[grep("gamma_year", rownames(mod_summary$quantiles)), ]
+# ds_est <- mod_summary$quantiles[grep("gamma_dataset", rownames(mod_summary$quantiles)), ]
 
 # predict fitted curves at integration points
 p <- exp(alpha_est[3] + beta_est[3] * integration_ages)
-hist(age_vec_est[, 3], breaks = c(-0.5, integration_ages),
+hist(age_vec_est[, 3], #breaks = c(-0.5, integration_ages),
      col = grey(0.6), border = NA, las = 1,
      xlab = "Age", ylab = "Density", freq = FALSE)
 lines(c(p * binsize / sum(integration_ages)) ~ integration_ages, lwd = 3)
