@@ -61,16 +61,14 @@ sigma_year_oti <- normal(0, sd(oti_analysis_data$age), truncation = c(0, Inf))
 gamma_site_oti <- normal(0, sigma_site_oti, dim = length(unique(oti_analysis_data$site)))
 gamma_year_oti <- normal(0, sigma_year_oti, dim = length(unique(oti_analysis_data$year)))
 
-#### WHY NOT MAKE THIS A LINEAR MODEL??
-
 # linear predictor
 age_est <- inverse_growth(oti_analysis_data$length / 10,
                           len_par, time_par, k_par, c_par) +
   gamma_site_oti[oti_analysis_data$site] + gamma_year_oti[oti_analysis_data$year]
 
 # add likelihood for age model
-sigma_main <- normal(0, 10, truncation = c(0, Inf))
-distribution(oti_analysis_data$age) <- normal(age_est, sigma_main)
+sigma_oti <- normal(0, 10, truncation = c(0, Inf))
+distribution(oti_analysis_data$age) <- normal(age_est, sigma_oti, truncation = c(0, Inf))
 
 # data prep
 survey_data <- data.frame(length = alldat$totallength / 10,
@@ -89,7 +87,7 @@ age_vec <- inverse_growth(survey_data$length,
                           len_par, time_par, k_par, c_par)
 
 # setup PPM as a GLM
-n_int <- 200
+n_int <- 20
 max_age <- 60
 
 # pull out indices fo rrandom effects
@@ -99,8 +97,8 @@ nyear <- max(survey_data$year)
 ndataset <- max(survey_data$dataset)
 
 # priors for PPM
-alpha_age <- normal(0, 1)
-beta_age <- normal(0, 1)
+alpha_age <- normal(0, 10)
+beta_age <- normal(0, 10)
 
 # variance priors for random effects
 sigma_system <- normal(0, 1, truncation = c(0, Inf))
@@ -148,9 +146,10 @@ distribution(response_vec) <- poisson(lambda)
 # compile model
 mod <- model(len_par, time_par, k_par, c_par,
              age_vec,
-             alpha_age, beta_age,
-             gamma_system, gamma_site, gamma_year, gamma_dataset,
-             sigma_system, sigma_site, sigma_year, sigma_dataset)
+             sigma_oti,
+             alpha_age, beta_age)#,
+             # gamma_system, gamma_site, gamma_year, gamma_dataset,
+             # sigma_system, sigma_site, sigma_year, sigma_dataset)
 
 # sample from modell
 init_set <- initials(len_par = 150, time_par = 6, k_par = 0.001, c_par = -100)
@@ -163,7 +162,7 @@ init_set <- initials(len_par = 150, time_par = 6, k_par = 0.001, c_par = -100)
 #                      alpha_age = opt_est$par$alpha_age,
 #                      beta_age = opt_est$par$beta_age)
 draws <- mcmc(mod, initial_values = init_set,
-              n_samples = 2000, warmup = 2000)
+              n_samples = 4000, warmup = 2000)
 
 # summarise model outputs
 mod_summary <- summary(draws)
@@ -172,10 +171,10 @@ mod_summary <- summary(draws)
 age_vec_est <- mod_summary$quantiles[grep("age_vec", rownames(mod_summary$quantiles)), ]
 alpha_est <- mod_summary$quantiles[grep("alpha_age", rownames(mod_summary$quantiles)), ]
 beta_est <- mod_summary$quantiles[grep("beta_age", rownames(mod_summary$quantiles)), ]
-sys_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
-site_est <- mod_summary$quantiles[grep("gamma_site", rownames(mod_summary$quantiles)), ]
-yr_est <- mod_summary$quantiles[grep("gamma_year", rownames(mod_summary$quantiles)), ]
-ds_est <- mod_summary$quantiles[grep("gamma_dataset", rownames(mod_summary$quantiles)), ]
+# sys_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
+# site_est <- mod_summary$quantiles[grep("gamma_site", rownames(mod_summary$quantiles)), ]
+# yr_est <- mod_summary$quantiles[grep("gamma_year", rownames(mod_summary$quantiles)), ]
+# ds_est <- mod_summary$quantiles[grep("gamma_dataset", rownames(mod_summary$quantiles)), ]
 
 # predict fitted curves at integration points
 p <- exp(alpha_est[3] + beta_est[3] * integration_ages)
