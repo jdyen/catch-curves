@@ -81,7 +81,7 @@ age_vec <- inverse_growth(survey_length_scaled,
                           age_alpha, age_beta)
 
 # setup PPM as a GLM
-n_int <- 200
+n_int <- 20
 max_age <- 60
 
 # pull out indices fo rrandom effects
@@ -91,8 +91,8 @@ nyear <- max(survey_data$year)
 ndataset <- max(survey_data$dataset)
 
 # priors for PPM
-alpha_age <- normal(0, 1)
-beta_age <- normal(0, 1)
+alpha_age <- normal(0, 10)
+beta_age <- normal(0, 10)
 
 # variance priors for random effects
 sigma_system <- normal(0, 1, truncation = c(0, Inf))
@@ -140,10 +140,10 @@ lambda <- exp(log(offset) + mu)
 distribution(response_vec) <- poisson(lambda)
 
 # compile model
-mod <- model(age_vec,
-             age_alpha, age_beta,
-             alpha_age, beta_age,
-             sigma_oti)#,
+mod <- model(len_par, time_par, k_par, c_par,
+             age_vec,
+             sigma_oti,
+             alpha_age, beta_age)#,
              # gamma_system, gamma_site, gamma_year, gamma_dataset,
              # sigma_system, sigma_site, sigma_year, sigma_dataset)
 
