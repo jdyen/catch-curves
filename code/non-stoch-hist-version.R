@@ -55,90 +55,75 @@ age_vec <- inverse_growth(survey_data$length,
                           len_par, time_par, k_par, c_par)
 age_vec[age_vec < 0] <- 0
 
-# setup PPM as a GLM
-n_int_sub <- 20
-max_age <- ceiling(max(age_vec))
-
-# pull out indices fo rrandom effects
+# pull out indices for random effects
 nsystem <- max(survey_data$system)
 nsite <- max(survey_data$site)
 nyear <- max(survey_data$year)
 ndataset <- max(survey_data$dataset)
 
+# settings for linear model
+n_int <- 100
+max_age <- ceiling(max(age_vec))
+
 # priors for PPM
 alpha_age <- normal(0, 10)
 beta_age <- normal(0, 10)
-delta_age <- normal(0, 10)
 
 # variance priors for random effects
 sigma_system <- normal(0, 1, truncation = c(0, Inf))
-# sigma_site <- normal(0, 1, truncation = c(0, Inf))
+sigma_site <- normal(0, 1, truncation = c(0, Inf))
 sigma_year <- normal(0, 1, truncation = c(0, Inf))
-# sigma_dataset <- normal(0, 1, truncation = c(0, Inf))
+sigma_dataset <- normal(0, 1, truncation = c(0, Inf))
 # sigma_delta_sys <- normal(0, 1, truncation = c(0, Inf))
 # sigma_delta_yr <- normal(0, 1, truncation = c(0, Inf))
 
 # main priors for random effects (expanded with an extra zero for integration points)
 gamma_system <- normal(0, sigma_system, dim = nsystem)
-# gamma_site[seq_len(nsite)] <- normal(0, sigma_site, dim = nsite)
+gamma_site <- normal(0, sigma_site, dim = nsite)
 gamma_year <- normal(0, sigma_year, dim = nyear)
-# gamma_dataset[seq_len(ndataset)] <- normal(0, sigma_dataset, dim = ndataset)
+gamma_dataset <- normal(0, sigma_dataset, dim = ndataset)
 # delta_sys <- zeros(nsystem + 1)
 # delta_sys[seq_len(nsystem)] <- normal(0, sigma_delta_sys, dim = nsystem)
 # delta_yr <- zeros(nyear + 1)
 # delta_yr[seq_len(nyear)] <- normal(0, sigma_delta_yr, dim = nyear)
 
-# work out the levels of factors for the integration points
-system_repeats <- rep(seq_len(nsystem), each = n_int_sub)
-# system_repeats <- rep(rep(seq_len(nsystem), each = n_int_sub), times = nyear)
-# year_repeats <- rep(rep(seq_len(nyear), times = n_int_sub), times = nsystem)
+# we need binned data by site and year
+age_seq <- seq(0, max_age, by = 1)
+hist_fn <- function(x, breaks) {
+  hist(x, breaks = breaks, plot = FALSE)$counts
+}
+age_counts <- tapply(age_vec, list(survey_data$system, survey_data$year), hist_fn, breaks = age_seq)
+age_mat <- do.call(rbind, c(age_counts))
+site_info <- rep(rownames(age_counts), times = nyear)
+year_info <- rep(colnames(age_counts), each = nsystem)
+to_keep <- !sapply(c(age_counts), is.null)
+system_info <- as.numeric(site_info[to_keep])
+year_info <- as.numeric(year_info[to_keep])
+# system_info <- survey_data$system[match(site_info, survey_data$site)]
+# dataset_info <- survey_data$dataset[match(site_info, survey_data$site)]
 
-# how many integration values are there total?
-n_int <- length(system_repeats)
-
-# setup integration points for PPM
-integration_ages <- seq(0, max_age, length = n_int)
-eps <- .Machine$double.eps
-binsize <- diff(range(integration_ages)) / n_int
-
-# expand age data to include integration points
-age_expanded <- c(age_vec, integration_ages)
-age_expanded_sq <- age_expanded * age_expanded
-system_expanded <- c(survey_data$system, system_repeats)
-# site_expanded <- c(survey_data$site, site_repeats)
-year_expanded <- c(survey_data$year, year_repeats)
-# dataset_expanded <- c(survey_data$dataset, dataset_repeats)
-
-# setup linear predictor and response variable
-## COULD ADD GP on mu, which would give a log-Gaussian Cox process
-response_vec <- rep(1:0, c(length(age_vec), n_int))
-offset <- c(rep(eps, length(age_vec)), rep(binsize, n_int))
-mu <- alpha_age + (beta_age + gamma_system[system_expanded]) * age_expanded
-  # (beta_age + delta_sys[system_expanded] + delta_yr[year_expanded]) * age_expanded
-  # gamma_site[site_expanded] +
-  # gamma_year[year_expanded] * age_expanded #+
-  # gamma_dataset[dataset_expanded]
+# now we need to define a linear predictor
+response_vec <- c(age_mat)
+mu <- alpha_age + beta_age * age_seq[-length(age_seq)]
+mu <- rep(mu, times = nrow(age_mat))
+mu <- mu + rep(gamma_system[system_info], each = max_age) +
+  rep(gamma_year[year_info], each = max_age) # +
+  # rep(gamma_site[site_info], each = max_age) +
+  # rep(gamma_dataset[dataset_info], each = max_age)
 
 # need to add offset and exponentiate linear predictor
-lambda <- exp(log(offset) + mu)
+lambda <- exp(mu)
 
 # set likelihood
 distribution(response_vec) <- poisson(lambda)
 
 # compile model
-mod <- model(alpha_age, beta_age, delta_age,
-             gamma_system, gamma_year)#, gamma_site, gamma_dataset,
-             # sigma_system, sigma_site, sigma_year, sigma_dataset)
+mod <- model(alpha_age, beta_age,
+             gamma_system, gamma_year, # gamma_site, gamma_dataset,
+             sigma_system, sigma_year) #sigma_site, sigma_dataset)
 
-# do we need initial values?
-init_set <- initials(sigma_system = 0.1,
-                     sigma_year = 0.1,
-                     sigma_site = 0.1,
-                     sigma_dataset = 0.1)
-
-# sample from model
-draws <- mcmc(mod, #initial_values = init_set,
-              n_samples = 10000, warmup = 10000)
+# sample from modelht
+draws <- mcmc(mod, n_samples = 5000, warmup = 5000)
 
 # summarise model outputs
 mod_summary <- summary(draws)
@@ -156,13 +141,10 @@ year_est <- mod_summary$quantiles[grep("gamma_year", rownames(mod_summary$quanti
 # delta_yr_est <- mod_summary$quantiles[grep("delta_yr", rownames(mod_summary$quantiles)), ]
 
 # predict fitted curves at integration points
-par(mfrow = c(2, 4))
-for (i in seq_len(nsystem)) {
-  p <- exp(alpha_est[3] +
-             (beta_est[3] + system_est[i, 3]) * integration_ages)
-  age_vec_tmp <- age_vec_est[survey_data$system == i]
-  hist(age_vec_tmp, breaks = c(-0.5, integration_ages),
-       col = grey(0.6), border = NA, las = 1,
-       xlab = "Age", ylab = "Density", freq = FALSE)
-  lines(c(p * binsize / sum(integration_ages)) ~ integration_ages, lwd = 3)
-}
+p <- exp(alpha_est[3] + (beta_est[3]) * integration_ages + delta_est[3] * integration_ages * integration_ages)
+# site_est[nsite, 3] +
+# dataset_est[ndataset, 3])
+hist(age_vec_est, breaks = c(-0.5, integration_ages),
+     col = grey(0.6), border = NA, las = 1,
+     xlab = "Age", ylab = "Density", freq = FALSE)
+lines(c(p * binsize / sum(integration_ages)) ~ integration_ages, lwd = 3)
