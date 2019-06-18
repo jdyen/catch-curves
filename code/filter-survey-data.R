@@ -4,37 +4,37 @@
 alldat <- cbind(alldat, flow_data)
 
 # set systems of interest
-system_sub <- c('BROKEN',
-                'LOWERMURRAY',
-                'CAMPASPE',
-                'GOULBURN',
-                'LODDON',
-                'OVENS')
+system_sub <- c("BROKEN",
+                "LOWERMURRAY",
+                "CAMPASPE",
+                "GOULBURN",
+                "KING",
+                "OVENS")
 alldat <- alldat[-which(is.na(match(alldat$SYSTEM, system_sub))), ]
 
 # keep spp of interest
 alldat$Scientific.Name <- as.character(alldat$Scientific.Name)
-alldat$Scientific.Name <- gsub(' ', '', alldat$Scientific.Name)
-alldat$Scientific.Name <- gsub('Maccullochellapeeliipeelii', 'Maccullochellapeelii',
+alldat$Scientific.Name <- gsub(" ", "", alldat$Scientific.Name)
+alldat$Scientific.Name <- gsub("Maccullochellapeeliipeelii", "Maccullochellapeelii",
                                alldat$Scientific.Name)
 alldat$Scientific.Name <- tolower(alldat$Scientific.Name)
-sp_to_keep <- c('maccullochellapeelii',
-                'maccullochellamacquariensis',
-                'macquariaambigua',
-                'bidyanusbidyanus',
-                'melanotaeniafluviatilis',
-                'retropinnasemoni',
-                'gadopsismarmoratus',
-                'cyprinuscarpio')
+sp_to_keep <- c("maccullochellapeelii",
+                "maccullochellamacquariensis",
+                "macquariaambigua",
+                "bidyanusbidyanus",
+                "melanotaeniafluviatilis",
+                "retropinnasemoni",
+                "gadopsismarmoratus",
+                "cyprinuscarpio")
 alldat <- alldat[alldat$Scientific.Name %in% sp_to_keep, ]
-common_names <- c('murraycod',
-                  'troutcod',
-                  'goldenperch',
-                  'silverperch',
-                  'murrayriverrainbowfish',
-                  'australiansmelt',
-                  'riverblackfish',
-                  'commoncarp')
+common_names <- c("murraycod",
+                  "troutcod",
+                  "goldenperch",
+                  "silverperch",
+                  "murrayriverrainbowfish",
+                  "australiansmelt",
+                  "riverblackfish",
+                  "commoncarp")
 names(common_names) <- sp_to_keep
 alldat$Common.Name <- common_names[alldat$Scientific.Name]
 
@@ -70,8 +70,8 @@ for (i in seq_along(sp_tmp)) {
     
     # estimate weight from length
     dat_tmp$WEIGHT[na_sub] <- exp(coefs[1] + coefs[2] * log(dat_tmp$totallength[na_sub]))
-    dat_tmp$WEIGHT_SRA[na_sub] <- 10 ** (coefs_sra['intercept'] +
-                                           coefs_sra['slope'] * log((dat_tmp$totallength[na_sub] / coefs_sra['fork_scale_fac']),
+    dat_tmp$WEIGHT_SRA[na_sub] <- 10 ** (coefs_sra["intercept"] +
+                                           coefs_sra["slope"] * log((dat_tmp$totallength[na_sub] / coefs_sra["fork_scale_fac"]),
                                                                     base = 10))
     dat_tmp$IMPUTED[na_sub] <- TRUE
     
@@ -89,6 +89,7 @@ alldat <- data.frame(date = alldat$Event_Date,
                      reach = alldat$Reach,
                      species = alldat$Common.Name,
                      sciname = alldat$Scientific.Name,
+                     length = alldat$totallength,
                      weight = alldat$WEIGHT,
                      abundance = alldat$Total.Sampled,
                      intensity = (alldat$total_no_passes * alldat$seconds),
@@ -106,17 +107,17 @@ alldat <- data.frame(date = alldat$Event_Date,
                      mindpth_m = alldat$mindpth_m)
 
 # remove missing data
-alldat <- alldat[!is.na(alldat$abundance), ]
-alldat <- alldat[!is.na(alldat$intensity), ]
-alldat <- alldat[!is.na(alldat$weight), ]
+# alldat <- alldat[!is.na(alldat$abundance), ]
+# alldat <- alldat[!is.na(alldat$intensity), ]
+# alldat <- alldat[!is.na(alldat$weight), ]
 
 # set up species names for plots
-sp_names <- data.frame(full = c('Australian smelt',
-                                'Common Carp',
-                                'Golden perch',
-                                'Murray cod',
-                                'Murray river rainbowfish',
-                                'River blackfish',
-                                'Silver perch',
-                                'Trout cod'),
+sp_names <- data.frame(full = c("Australian smelt",
+                                "Common Carp",
+                                "Golden perch",
+                                "Murray cod",
+                                "Murray river rainbowfish",
+                                "River blackfish",
+                                "Silver perch",
+                                "Trout cod"),
                        code = as.character(levels(alldat$species)))

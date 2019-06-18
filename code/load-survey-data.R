@@ -7,7 +7,7 @@ vefmap17new$Event_Date <- dmy_hms(vefmap17new$Event_Date)
 vefmap17new$SYSTEM <- gsub("GOULBURN ", "GOULBURN", vefmap17new$SYSTEM)
 vefmap17$Event_Date <- dmy(vefmap17$Event_Date)
 
-# remove unneeded columns from vefmap17new
+# remove unneeded columns from vefmap17news
 colnames(vefmap17new)[c(4, 9)] <- c("Reach", "seconds")
 vefmap17new <- vefmap17new[, match(colnames(vefmap17), colnames(vefmap17new))]
 
@@ -62,6 +62,7 @@ ovens_data$species <- ifelse(ovens_data$species == "Maccullochella peelii",
                              ovens_data$species)
 ovens_data$species <- factor(ovens_data$species)
 ovens_data$common_name <- vefmap17$Common.Name[match(ovens_data$species, vefmap17$Scientific.Name)]
+ovens_data$total_length_mm[is.na(ovens_data$total_length_mm)] <- ovens_data$fin_length_mm[is.na(ovens_data$total_length_mm)]
 ovens_data2 <- data.frame(SYSTEM = rep("OVENS", nrow(ovens_data)),
                           SITE_CODE = paste0("Ov", ovens_data$site),
                           Reach = rep(1, nrow(ovens_data)),
@@ -162,12 +163,12 @@ king_data$SPECIES <- ifelse(king_data$SPECIES == "maccullochella macquariensis",
                             king_data$SPECIES)
 king_data$Sampled <- apply(cbind(king_data$No..Coll., king_data$No..obs.), 1, sum, na.rm = TRUE)
 king_clean <- data.frame(SYSTEM = rep("KING", nrow(king_data)),
-                         SITE_CODE = king_data$Site.No.,
-                         Reach = rep(NA, nrow(king_data)),
+                         SITE_CODE = "KingSite",
+                         Reach = rep(1, nrow(king_data)),
                          geartype = king_data$Gear.Type..EF.BP..EF.LB..EF.MB..EF.SB..BT.,
                          Event_Date = dmy(king_data$Date),
                          Pass.No = king_data$Operation,
-                         total_no_passes = rep(NA, nrow(king_data)),
+                         total_no_passes = rep(1, nrow(king_data)),
                          seconds = king_data$Electro.Seconds,
                          Common.Name = rep(NA, nrow(king_data)),
                          Scientific.Name = king_data$SPECIES,
@@ -232,14 +233,15 @@ ovens2018_clean <- data.frame(SYSTEM = rep("OVENS", nrow(ovens2018_data)),
 
 # combine all data sets
 alldat <- rbind(vefmap17new, ovens_data2, snags_data2, vefmap18_clean, vefmap18_additional_clean,
-                ovens2018_clean, mid_ovens_clean)
+                ovens2018_clean, mid_ovens_clean, king_clean)
 alldat$dataset <- c(rep("vefmap", nrow(vefmap17new)),
                     rep("ovens", nrow(ovens_data2)),
                     rep("snags", nrow(snags_data2)),
                     rep("vefmap", nrow(vefmap18_clean)),
                     rep("vefmap", nrow(vefmap18_additional_clean)),
                     rep("ovens", nrow(ovens2018_clean)),
-                    rep("ovens", nrow(mid_ovens_clean)))
+                    rep("ovens", nrow(mid_ovens_clean)),
+                    rep("king", nrow(king_clean)))
 
 # add reach IDs for odd sites
 alldat$Reach[grep("Th4", alldat$SITE_CODE)] <- 4
@@ -292,5 +294,3 @@ alldat$Scientific.Name <- ifelse(alldat$Scientific.Name == "Cyprinus carpio  ",
 alldat$Scientific.Name <- ifelse(alldat$Scientific.Name == "Macquaria australasica ",
                                  "Macquaria australasica", 
                                  alldat$Scientific.Name)
-
-saveRDS(alldat, file = "data/data-loaded.rds")

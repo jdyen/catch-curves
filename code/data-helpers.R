@@ -776,3 +776,44 @@ prepare_analysis_data <- function(catch_curves, n_class = 6) {
   out
   
 }
+
+# internal functon for rolling_range (below)
+get_range <- function(x) {
+  
+  out <- NA
+  
+  if (any(!is.na(x)))
+    out <- max(x, na.rm = TRUE) - min(x, na.rm = TRUE)
+    
+  out
+  
+}
+
+# calculate maximum rolling range in a variable over a set lag or lead time
+rolling_range <- function(data, lag, variable = NULL){ 
+  
+  if (length(dim(data)) < 2) {
+    data <- as.matrix(data, ncol = 1)
+    variable <- 1
+  }
+  
+  if (ncol(data) == 1)
+    variable <- 1
+  
+  if (is.null(variable))
+    stop("`variable` must be provided if `data` has more than one column", call. = FALSE)
+  
+  nrows <- nrow(data)
+  
+  idx <- sapply(rev(seq_len(lag)) - 1, function(x) rep(x, nrows))
+  idx <- sweep(idx, 1, seq_len(nrows), "+")
+  idx <- ifelse(idx > nrows, NA, idx)
+  
+  df <- matrix(data[c(idx), variable], nrow = nrows)
+  
+  diff <- apply(df, 1, get_range)
+  
+  max(diff, na.rm = TRUE)
+  
+}   
+

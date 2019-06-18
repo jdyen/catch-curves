@@ -6,6 +6,7 @@ library(greta)
 
 # source helper functions
 source("code/greta-helpers.R")
+source("code/tf_functions.R")
 
 # load compiled survey data
 alldat <- readRDS("data/data-loaded-Feb19.rds")
@@ -14,6 +15,12 @@ alldat <- readRDS("data/data-loaded-Feb19.rds")
 to_keep <- alldat$Scientific.Name == "Maccullochella peelii"
 alldat <- alldat[to_keep, ]
 alldat$Common.Name <- NULL
+
+# optional: subset to systems of interest
+# systems_to_keep <- c("BROKEN", "CAMPASPE", "GOULBURN",
+#                      "KING", "LODDON", "LOWERMURRAY",
+#                      "OVENS")
+# alldat <- alldat[alldat$SYSTEM %in% systems_to_keep, ]
 
 # need to load flow data
 flow_data <- readRDS("data/flow-data-loaded-Feb19.rds")
@@ -48,57 +55,79 @@ survey_data$year <- as.integer(as.factor(survey_data$year))
 survey_data$dataset <- as.integer(as.factor(survey_data$dataset))
 
 # convert observed lengths to ages
-len_par <- 150
-time_par <- 6
-k_par <- 0.0011
+len_par <- normal(150, 10)
+time_par <- lognormal(6, 1)
+k_par <- lognormal(0.0011, 0.0001)
 c_par <- -103
+# len_par <- 150
+# time_par <- 6
+# k_par <- 0.0011
+# c_par <- -103
 age_vec <- inverse_growth(survey_data$length,
                           len_par, time_par, k_par, c_par)
 age_vec[age_vec < 0] <- 0
-to_rm <- age_vec >= 10
-age_vec <- age_vec[!to_rm]
-survey_data <- survey_data[!to_rm, ]
-flow_data <- flow_data[!to_rm, ]
 
-# setup PPM as a GLM
+# pull out indices for random effects
+nsystem <- max(survey_data$system)
+nsite <- max(survey_data$site)
+nyear <- max(survey_data$year)
+ndataset <- max(survey_data$dataset)
+
+# settings for linear model
 max_age <- ceiling(max(age_vec))
 
-# pull out indices fo random effects
-nsystem <- max(survey_data$system)
-
-# include flow in year of survey only, assume cohort effects are captured in
-#   survival link among years (flow affects YOY, which carries through to later years)
-mannf_std <- scale(flow_data[, "mannf_mld"])
-cvflow_std <- scale(flow_data[, "covaf_mld"])
-mannf_std[is.na(mannf_std)] <- mean(mannf_std, na.rm = TRUE)
-cvflow_std[is.na(cvflow_std)] <- mean(cvflow_std, na.rm = TRUE)
-
-# create a matrix of indices identifying cohorts
-cohort_id <- rep(NA, length(age_vec))
-current_max <- 0
-for (i in seq_len(nsystem)) {
-  sys_sub <- survey_data$system == i
-  cohort_tmp <- ceiling(age_vec[sys_sub]) + survey_data$year[sys_sub] - min(survey_data$year[sys_sub])
-  cohort_id[sys_sub] <- cohort_tmp + current_max
-  current_max <- max(cohort_id, na.rm = TRUE)
-}
-cohort_id <- as.integer(as.factor(cohort_id))
-
-# we need binned data by site and year (for plotting, later)
-age_seq <- 0:max_age
+# we need binned data by site and year
+age_seq <- seq(0, max_age, by = 1)
 hist_fn <- function(x, breaks) {
   hist(x, breaks = breaks, plot = FALSE)$counts
 }
 age_counts <- tapply(age_vec, list(survey_data$system, survey_data$year), hist_fn, breaks = age_seq)
 age_mat <- do.call(rbind, c(age_counts))
-nyear <- max(survey_data$year)
+age_mat <- do.call(rbind, c(age_counts))
+age_mat <- age_mat[, 1:8] ## truncate to four-year olds.
+
+# include flow in year of survey only, assume cohort effects are captured in
+#   survival link among years (flow affects YOY, which carries through to later years)
+mannf_compiled <- tapply(flow_data[, 1], list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+cvflow_compiled <- tapply(flow_data[, 4], list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+msprf_compiled <- tapply(flow_data[, 2], list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+msumf_compiled <- tapply(flow_data[, 3], list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+covsp_compiled <- tapply(flow_data[, 6], list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+
+# pull out system and year info
 system_info <- rep(rownames(age_counts), times = nyear)
 year_info <- rep(colnames(age_counts), each = nsystem)
+
+# subset to observed years and systems
 to_keep <- !sapply(c(age_counts), is.null)
 system_info <- as.numeric(system_info[to_keep])
 year_info <- as.numeric(year_info[to_keep])
+mannf_compiled <- mannf_compiled[to_keep]
+cvflow_compiled <- cvflow_compiled[to_keep]
+msprf_compiled <- msprf_compiled[to_keep]
+msumf_compiled <- msumf_compiled[to_keep]
+covsp_compiled <- covsp_compiled[to_keep]
 
-# we also need cohort IDs for each system and year to match the plots
+# fill King river flow values (need to get data on these)
+mannf_compiled[is.nan(mannf_compiled)] <- mean(mannf_compiled, na.rm = TRUE)
+cvflow_compiled[is.nan(cvflow_compiled)] <- mean(cvflow_compiled, na.rm = TRUE)
+msprf_compiled[is.nan(msprf_compiled)] <- mean(msprf_compiled, na.rm = TRUE)
+msumf_compiled[is.nan(msumf_compiled)] <- mean(msumf_compiled, na.rm = TRUE)
+covsp_compiled[is.nan(covsp_compiled)] <- mean(covsp_compiled, na.rm = TRUE)
+
+# winter/spring mean or max positively associated with adult migration and condition (pre-spawning)
+# previous year's flows (mean daily discharge) positively associated with adult condition
+# winter low flows (median or min daily discharge) positively associated with juvenile survival and adult condition
+# variability in velocity/height/discharge negatively associated with 
+#    nest, egg, larval, and juvenile survival. (Oct-Nov for nests and eggs, Nov-Dec for larvae).
+# summer mean/max flows associated with larval and juvenile survival (quadratic response; too much is bad, so is too little)
+# years since flood/inundation matters (longer = worse for adults?); can we get bankfull thresholds for all systems?
+
+# standardise flow values: use summer flows and CV of spawning flows (Oct-Dec)
+mannf_std <- scale(msumf_compiled)
+cvflow_std <- scale(covsp_compiled)
+
+# create a matrix of indices identifying cohorts
 cohort_mat <- matrix(NA, nrow = length(system_info), ncol = ncol(age_mat))
 current_max <- 0
 for (i in seq_len(nsystem)) {
@@ -112,96 +141,85 @@ for (i in seq_len(nsystem)) {
   current_max <- max(cohort_tmp)
   cohort_mat[which(sys_sub)[order(year_sort)], ] <- cohort_tmp
 }
-ncohort <- max(c(cohort_mat))
 
-# priors for PPM
-alpha_age <- normal(0, 10)
-beta_age <- normal(0, 10)
-beta_mannf <- normal(0, 10)
-beta_cvflow <- normal(0, 10)
+# now we need to create response and predictor variables
+age_predictor <- rep(seq_len(ncol(age_mat)), each = nrow(age_mat))
+system_vec <- rep(system_info, times = ncol(age_mat))
+year_vec <- rep(year_info, times = ncol(age_mat))
+mannf_vec <- rep(mannf_std, times = ncol(age_mat))
+cvflow_vec <- rep(cvflow_std, times = ncol(age_mat))
+cohort_vec <- c(cohort_mat)
+response_vec <- c(age_mat)
+ncohort <- length(unique(cohort_vec))
 
-# variance priors for random effects
-sigma_system <- normal(0, 1, truncation = c(0, Inf))
-sigma_cohort <- normal(0, 1, truncation = c(0, 2))
-sigma_mannf <- normal(0, 1, truncation = c(0, Inf))
-sigma_cvflow <- normal(0, 1, truncation = c(0, Inf))
+# we need variance priors before we can set random effects
+sigma_mannf <- normal(0, 10, truncation = c(0, Inf))
+sigma_mannf2 <- normal(0, 10, truncation = c(0, Inf))
+sigma_cvflow <- normal(0, 10, truncation = c(0, Inf))
+sigma_system <- normal(0, 10, truncation = c(0, Inf))
+sigma_cohort <- normal(0, 10, truncation = c(0, Inf))
 
-# main priors for random effects
-gamma_system <- normal(0, sigma_system, dim = nsystem)
-gamma_cohort <- normal(0, sigma_cohort, dim = ncohort)
-gamma_mannf <- normal(0, sigma_mannf, dim = max_age + 1)
-gamma_cvflow <- normal(0, sigma_cvflow, dim = max_age + 1)
+# now we can set priors for the intercepts and slopes
+alpha <- normal(0, 5)
+beta_age <- normal(0, 5)
+beta_mannf <- normal(0, 5)
+beta_mannf2 <- normal(0, 5)
+beta_cvflow <- normal(0, 5)
+gamma_mannf <- normal(0, sigma_mannf, dim = max(age_predictor))
+gamma_mannf2 <- normal(0, sigma_mannf2, dim = max(age_predictor))
+gamma_cvflow <- normal(0, sigma_cvflow, dim = max(age_predictor))
+gamma_system <- normal(0, sigma_system, dim = max(system_vec))
+gamma_cohort <- normal(0, sigma_cohort, dim = max(cohort_vec))
 
-# setup integration points for PPM
-n_age <- 100
-integration_ages <- rep(seq(0, max_age, length = n_age), ncohort * nsystem)
-n_int <- length(integration_ages)
-eps <- .Machine$double.eps
-binsize <- diff(range(integration_ages)) / n_int
+# set up linear predictor
+mu <- alpha + beta_age * age_predictor +
+  (beta_mannf + gamma_mannf[age_predictor]) * mannf_vec +
+  (beta_mannf2 + gamma_mannf2[age_predictor]) * mannf_vec * mannf_vec +
+  (beta_cvflow + gamma_cvflow[age_predictor]) * cvflow_vec +
+  gamma_cohort[cohort_vec] + gamma_system[system_vec]
 
-# work out the levels of factors for the integration points
-all_rpts <- expand.grid(system = seq_len(nsystem), cohort = seq_len(ncohort))
-system_repeats <- rep(all_rpts$system, each = n_age)
-cohort_repeats <- rep(all_rpts$cohort, each = n_age)
-# system_repeats <- sample(seq_len(nsystem), size = n_int, replace = TRUE)
-# cohort_repeats <- sample(seq_len(ncohort), size = n_int, replace = TRUE)
-mannf_repeats <- sample(mannf_std, size = n_int, replace = TRUE)
-cvflow_repeats <- sample(cvflow_std, size = n_int, replace = TRUE)
+# what likelihood do we want?
+distribution(response_vec) <- poisson(exp(mu))
 
-# expand age data to include integration points
-age_expanded <- c(age_vec, integration_ages)
-system_expanded <- c(survey_data$system, system_repeats)
-cohort_expanded <- c(cohort_id, cohort_repeats)
-mannf_expanded <- c(mannf_std, mannf_repeats)
-cvflow_expanded <- c(cvflow_std, cvflow_repeats)
-age_floor <- floor(age_expanded) + 1
-
-# setup linear predictor and response variable
-response_vec <- rep(1:0, c(length(age_vec), n_int))
-offset <- c(rep(eps, length(age_vec)), rep(binsize, n_int))
-mu <- alpha_age +  beta_age * age_expanded +
-  # (beta_mannf + gamma_mannf[age_floor]) * mannf_expanded +
-  # (beta_cvflow + gamma_cvflow[age_floor]) * cvflow_expanded +
-  gamma_system[system_expanded] +
-  gamma_cohort[cohort_expanded]
-
-# need to add offset and exponentiate linear predictor
-lambda <- exp(log(offset) + mu)
-
-# set likelihood
-distribution(response_vec) <- poisson(lambda)
-
-# compile model
-mod <- model(alpha_age, beta_age,
-             beta_mannf, beta_cvflow, gamma_mannf, gamma_cvflow,
+# compile greta model
+mod <- model(alpha, beta_age,
+             beta_mannf, beta_cvflow, beta_mannf2,
+             gamma_mannf2, gamma_mannf, gamma_cvflow,
              gamma_system, gamma_cohort,
-             sigma_system, sigma_cohort, sigma_mannf, sigma_cvflow)
+             sigma_cohort, sigma_system, sigma_cvflow, sigma_mannf)
 
-# sample from model
-draws <- mcmc(mod, n_samples = 100000, warmup = 100000, thin = 10)
+# sample from greta model
+draws <- mcmc(mod, n_samples = 200000, warmup = 100000, thin = 50)
 
-# summarise model outputs
+# summarise fitted model
 mod_summary <- summary(draws)
 
-# pull out values of interest
-alpha_est <- mod_summary$quantiles[grep("alpha_age", rownames(mod_summary$quantiles)), ]
-beta_est <- mod_summary$quantiles[grep("beta_age", rownames(mod_summary$quantiles)), ]
-system_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), ]
-cohort_est <- mod_summary$quantiles[grep("gamma_cohort", rownames(mod_summary$quantiles)), ]
-beta_mannf_est <- mod_summary$quantiles[grep("beta_mannf", rownames(mod_summary$quantiles)), ]
+# pull out parameters and define predictions
+alpha_est <- mod_summary$quantiles[grep("alpha", rownames(mod_summary$quantiles)), "50%"]
+beta_age_est <- mod_summary$quantiles[grep("beta_age", rownames(mod_summary$quantiles)), "50%"]
+beta_mannf_est <- mod_summary$quantiles[grep("beta_mannf$", rownames(mod_summary$quantiles)), ]
+beta_mannf2_est <- mod_summary$quantiles[grep("beta_mannf2", rownames(mod_summary$quantiles)), ]
 beta_cvflow_est <- mod_summary$quantiles[grep("beta_cvflow", rownames(mod_summary$quantiles)), ]
-gamma_mannf_est <- mod_summary$quantiles[grep("gamma_mannf", rownames(mod_summary$quantiles)), ]
+gamma_mannf_est <- mod_summary$quantiles[grep("gamma_mannf\\[", rownames(mod_summary$quantiles)), ]
+gamma_mannf2_est <- mod_summary$quantiles[grep("gamma_mannf2", rownames(mod_summary$quantiles)), ]
 gamma_cvflow_est <- mod_summary$quantiles[grep("gamma_cvflow", rownames(mod_summary$quantiles)), ]
+gamma_system_est <- mod_summary$quantiles[grep("gamma_system", rownames(mod_summary$quantiles)), "50%"]
+gamma_cohort_est <- mod_summary$quantiles[grep("gamma_cohort", rownames(mod_summary$quantiles)), "50%"]
+
+# plot flow effects
+mannf_effects <- sweep(gamma_mannf_est, 2, beta_mannf_est, "+")
+cvflow_effects <- sweep(gamma_cvflow_est, 2, beta_cvflow_est, "+")
+mannf2_effects <- sweep(gamma_mannf2_est, 2, beta_mannf2_est, "+")
 
 # calculate residuals by system and year
 n_obs_tmp <- ncol(age_mat)
 sys_year_obs <- sys_year_pred <- sys_year_resid <- array(NA, dim = c(nyear, n_obs_tmp, nsystem))
 for (sys_set in seq_len(nsystem)) {
-
-  # subset to system sys_set
   age_sub <- age_mat[system_info == sys_set, ]
   year_sub <- year_info[system_info == sys_set]
   cohort_sub <- cohort_mat[system_info == sys_set, ]
+  mannf_sub <- mannf_std[system_info == sys_set]
+  cvflow_sub <- cvflow_std[system_info == sys_set]
   if (is.null(nrow(age_sub)))
     age_sub <- matrix(age_sub, nrow = 1)
   
@@ -209,17 +227,19 @@ for (sys_set in seq_len(nsystem)) {
   age_pred <- rep(seq_len(n_obs_tmp), each = nrow(age_sub))
   system_pred <- rep(sys_set, n_obs_tmp * nrow(age_sub))
   cohort_pred <- c(cohort_sub)
-
-  for (i in seq_len(nrow(age_sub))) {
-    pred_mid <- exp(alpha_est[3] +
-                      beta_est[3] * age_pred +
-                      system_est[sys_set, 3] +
-                      cohort_est[cohort_pred, 3])
-    pred_mid <- matrix(pred_mid, ncol = ncol(age_sub))
-    sys_year_obs[year_sub, , sys_set] <- age_sub
-    sys_year_pred[year_sub, , sys_set] <- pred_mid * binsize / sum(integration_ages)
-    sys_year_resid[year_sub, , sys_set] <- age_sub - pred_mid * binsize / sum(integration_ages)
-  }
+  mannf_pred <- rep(mannf_sub, times = n_obs_tmp)
+  cvflow_pred <- rep(cvflow_sub, times = n_obs_tmp)
+  
+  # define median predicted value
+  pred_mid <- exp(alpha_est + beta_age_est * age_pred +
+                    (beta_mannf_est[3] + gamma_mannf_est[age_pred, 3]) * mannf_pred +
+                    (beta_mannf2_est[3] + gamma_mannf2_est[age_pred, 3]) * mannf_pred * mannf_pred +
+                    (beta_cvflow_est[3] + gamma_cvflow_est[age_pred, 3]) * cvflow_pred +
+                    gamma_system_est[system_pred] + gamma_cohort_est[cohort_pred])
+  
+  sys_year_obs[year_sub, , sys_set] <- age_sub
+  sys_year_pred[year_sub, , sys_set] <- pred_mid
+  sys_year_resid[year_sub, , sys_set] <- age_sub - pred_mid
 }
 system_names <- c("Broken", "Campaspe", "Goulburn",
                   "King", "Loddon", "Lower Murray",
@@ -228,7 +248,7 @@ par(mar = c(4.5, 4.5, 3.1, 1.1))
 for (i in seq_len(nsystem)) {
   
   if (system_names[i] != "Pyramid Creek") {
-    
+
     # pdf(file = paste0("outputs/age_class_strength_", system_names[i], ".pdf"),
     #     width = 7, height = 7)
     par(mfrow = c(3, 1))
