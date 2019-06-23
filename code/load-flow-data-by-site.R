@@ -28,6 +28,11 @@ for (i in seq_along(pred_list)) {
 }
 names(predictors) <- sapply(strsplit(pred_list, "_"), function(x) paste(x[1], x[2], sep = "_"))
 
+# backfill Ovens@Wang with temperature data from logger at Peechelba.
+predictors$ovens_wangaratta$water_temp_c <- 
+  predictors$ovens_peechelba$water_temp_c[match(predictors$ovens_wangaratta$Event_Date,
+                                                predictors$ovens_peechelba$Event_Date)]
+
 # calculate flow metrics
 calc_flow_metrics <- function(x, na_thresh = 0.2) {
   

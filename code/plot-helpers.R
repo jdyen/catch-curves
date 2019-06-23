@@ -15,7 +15,7 @@ plot_associations <- function(mod,
                          psumw_ym1_vec = rep(0, nplot),
                          minwin_vec = rep(0, nplot),
                          spwntmp_vec = rep(0, nplot),
-                         system_vec = rep(system, nplot),
+                         system_vec = factor(rep(system, nplot)),
                          year_vec = rep(year, nplot),
                          cohort_vec = rep(cohort, nplot))
   
@@ -34,7 +34,7 @@ plot_associations <- function(mod,
     age_set <- rep(i, nplot)
     data_tmp$age_predictor <- age_set
     data_tmp$age_factor <- factor(age_set)
-    flow_pred[[i]] <- posterior_predict(mod, newdata = data_tmp, re.form = NA)
+    flow_pred[[i]] <- posterior_predict(mod, newdata = data_tmp)
   } 
   
   # summarise the predicted catch curves as mean and 95% credible intervals

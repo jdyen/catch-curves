@@ -65,6 +65,7 @@ age_vec <- inverse_growth(survey_data$length,
 age_vec[age_vec < 0] <- 0
 
 # CT breaks: works out to (0, 200, 300, 400, 500)
+# CT v2 (with -0.4:n_age breaks): (0, 150, 275, 380, 470, 545, above)
 #  - maybe not if rounding rather than flooring
 # size_breaks <- c(-10, 120, 175, 270, 350, 1400)
 # size_breaks <- c(-10, 115, 165, 250, 340, 1400)
@@ -82,8 +83,7 @@ ndataset <- max(survey_data$dataset)
 max_age <- ceiling(max(age_vec))
 
 # we need binned data by site and year
-### CHECK THIS: assumes older than 0.9 yr is 1YO, younger is YOY.
-age_seq <- seq(-0.1, max_age + 1, by = 1)
+age_seq <- seq(-0.4, max_age + 1, by = 1)
 hist_fn <- function(x, breaks) {
   hist(x, breaks = breaks, plot = FALSE)$counts
 }
@@ -197,34 +197,39 @@ data_set <- data.frame(age_predictor = rep(seq_len(ncol(age_mat)), each = nrow(a
                        response_vec = c(age_mat),
                        ncohort = length(unique(c(cohort_mat))),
                        age_factor = factor(rep(seq_len(ncol(age_mat)), each = nrow(age_mat))))
+# data_set$system_vec <- factor(data_set$system_vec)
 
 # hack to fill temp data for now
 data_set$spwntmp_vec[is.na(data_set$spwntmp_vec)] <- mean(data_set$spwntmp_vec, na.rm = TRUE)
 
+## TRY REPLACING WITH UNSTANDARDISED FLOWS TO CHECK SENSITIVITY TO THE
+##    PROPORTIONAL STANDARDISATION APPROACH.
+
 # fit a model
-
-# check thresholds for CT model
-# works out to (0, 200, 300, 400, 500)
-# vs
-# size_breaks <- c(-10, 120, 175, 270, 350, 1400)
-# or
-# size_breaks <- c(-10, 115, 165, 250, 340, 1400)
-
-mod <- stan_glmer(response_vec ~ age_predictor * system_vec +
+mod <- stan_glmer(response_vec ~ age_predictor + system_vec +
                     rrang_vec +
                     rrang_vec : age_factor +
+                    rrang_ym1_vec +
+                    rrang_ym1_vec : age_factor +
                     psprw_vec + 
                     psprw_vec : age_factor + 
+                    psprw_ym1_vec + 
+                    psprw_ym1_vec : age_factor +
                     psumw_vec + 
                     psumw_vec : age_factor + 
+                    psumw_ym1_vec + 
+                    psumw_ym1_vec : age_factor +
                     minwin_vec + spwntmp_vec +
-                    minwin_vec : age_factor + 
+                    minwin_vec : age_factor +
                     spwntmp_vec : age_factor +
                     (1 | year_vec) +
                     (1 | cohort_vec),
                   iter = 10000, chains = 4,
                   data = data_set,
                   family = stats::poisson, cores = 4)
+
+# validate model
+mod_cv <- validate_glmer(mod, folds = folds)
 
 # plot some flow effects
 system_names <- c("Broken", "Goulburn",
@@ -234,7 +239,7 @@ for (i in seq_along(system_names)) {
   
   # spring flows relative to long-term winter median
   # pdf(file = paste0("outputs/spring-flow-effects-", system_names[i],"_threshold.pdf"), height = 8, width = 6)
-  par(mfrow = c(2, 2))
+  par(mfrow = c(3, 2))
   plot_associations(mod, variable = "psprw_vec", data = data_set,
                     rescale = flow_scales,
                     system = i, data_set$cohort_vec[data_set$system_vec == i][1])
@@ -242,7 +247,7 @@ for (i in seq_along(system_names)) {
 
   # winter low flows
   # pdf(file = paste0("outputs/winter-flow-effects-", system_names[i],"_threshold.pdf"), height = 8, width = 6)
-  par(mfrow = c(2, 2))
+  par(mfrow = c(3, 2))
   plot_associations(mod, variable = "minwin_vec", data = data_set,
                     rescale = flow_scales, xlab = "Days below 10%",
                     system = i, data_set$cohort_vec[data_set$system_vec == i][1])
