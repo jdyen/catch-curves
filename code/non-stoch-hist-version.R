@@ -97,7 +97,7 @@ age_mat <- age_mat[, 1:4]
 # include flow in year of survey only, assume cohort effects are captured in
 #   survival link among years (flow affects YOY, which carries through to later years)
 rrang_compiled <- tapply(flow_data$rrang_spwn_mld, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-rrang_ym1_compiled <- tapply(flow_data[, "rrang_spwn_mld_ym1"], list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+rrang_ym1_compiled <- tapply(flow_data$rrang_spwn_mld_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 psprw_compiled <- tapply(flow_data$prop_spr_lt_win, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 psumw_compiled <- tapply(flow_data$prop_sum_lt_win, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 psprw_ym1_compiled <- tapply(flow_data$prop_spr_lt_win_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
@@ -212,27 +212,21 @@ data_set$system_vec <- factor(data_set$system_vec)
 ##    PROPORTIONAL STANDARDISATION APPROACH.
 
 # fit a model
-mod <- stan_glmer(response_vec ~ age_predictor + system_vec +
-                    rrang_vec +
-                    rrang_vec : age_factor +
-                    rrang_ym1_vec +
-                    rrang_ym1_vec : age_factor +
-                    psprw_vec + 
-                    psprw_vec : age_factor + 
-                    psprw_ym1_vec + 
-                    psprw_ym1_vec : age_factor +
-                    psumw_vec + 
-                    psumw_vec : age_factor + 
-                    psumw_ym1_vec + 
-                    psumw_ym1_vec : age_factor +
-                    minwin_vec + spwntmp_vec +
-                    minwin_vec : age_factor +
-                    spwntmp_vec : age_factor +
+mod <- stan_glmer(response_vec ~ age_predictor + 
+                    (rrang_vec + rrang_ym1_vec +
+                       psprw_vec + psprw_ym1_vec +
+                       psumw_vec + psumw_ym1_vec + 
+                       minwin_vec + spwntmp_vec | system_vec) +
+                    (-1 +
+                       rrang_vec + rrang_ym1_vec +
+                       psprw_vec + psprw_ym1_vec +
+                       psumw_vec + psumw_ym1_vec +
+                       minwin_vec + spwntmp_vec | age_factor) +
                     (1 | year_vec) +
                     (1 | cohort_vec),
-                  iter = 10000, chains = 3,
+                  iter = 1000, chains = 3,
                   data = data_set,
-                  family = stats::poisson, cores = 3)
+                  family = stats::poisson, cores = 1)
 
 # validate model
 mod_cv <- validate_glmer(mod, folds = 10, settings = list(iter = 100))
@@ -252,8 +246,8 @@ for (i in seq_along(system_names)) {
   
   # spring flows relative to long-term winter median
   # pdf(file = paste0("outputs/spring-flow-effects-", system_names[i],"_threshold.pdf"), height = 8, width = 6)
-  par(mfrow = c(3, 2))
-  plot_associations(mod, variable = "psprw_vec", data = data_set,
+  par(mfrow = c(2, 2))
+  plot_associations(mod, variable = "psprw_ym1_vec", data = data_set,
                     rescale = flow_scales,
                     system = i, data_set$cohort_vec[data_set$system_vec == i][1])
   # dev.off()
