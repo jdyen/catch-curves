@@ -13,7 +13,7 @@ validate_glmer <- function(obj, folds, settings = list()) {
   if (is.numeric(folds))
     folds <- define_cv_folds(folds, n_obs)
 
-  # run function
+  # run cv function
   cv_vals <- lapply(folds, cv_fun, obj, all_vars, sets)
   
   # return validation metrics
