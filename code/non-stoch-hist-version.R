@@ -10,8 +10,6 @@ source("code/plot-helpers.R")
 # load compiled survey data
 alldat <- readRDS("data/data-loaded-Jun19.rds")
 
-### MISSING TEMP DATA FOR OVENS@WANG AND KING (COULD SUB OVENS DATA FOR KING)
-
 # filter survey data to MC
 to_keep <- alldat$Scientific.Name == "Maccullochella peelii"
 alldat <- alldat[to_keep, ]
@@ -64,6 +62,10 @@ age_vec <- inverse_growth(survey_data$length,
                           len_par, time_par, k_par, c_par)
 age_vec[age_vec < 0] <- 0
 
+## COULD USE THESE BREAKS TO SET UP BINNED LENGTH DATA, THEN USE A MULTINOM MODEL TO TRANSLATE
+##   BINNED LENGTHS TO BINNED AGES WITH UNCERTAINTY. NEED A GOOD SET OF KNOWN-AGE DATA TO
+##   PARAMETERISE THE UNDERLYING MULTINOM MODEL
+
 # CT breaks: works out to (0, 200, 300, 400, 500)
 # CT v2 (with -0.4:n_age breaks): (0, 150, 275, 380, 470, 545, above)
 #  - maybe not if rounding rather than flooring
@@ -102,6 +104,13 @@ psprw_ym1_compiled <- tapply(flow_data$prop_spr_lt_win_ym1, list(survey_data$sys
 psumw_ym1_compiled <- tapply(flow_data$prop_sum_lt_win_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 minwin_compiled <- tapply(flow_data$numlow_days, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 spwn_temp_compiled <- tapply(flow_data$spwntmp_c, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+
+# replace King temperature data (all missing) with Ovens data
+spwn_temp_compiled[3, ]  <- spwn_temp_compiled[5, ]
+
+## MISSING temperature data for early Murray years
+# replace with mean from 2003-2010
+spwn_temp_compiled[4, 1:4] <- mean(spwn_temp_compiled[4, 5:10])
 
 # if wanting to work with flows relative to current winter rather than relative to long-term winter flows
 # psprw_compiled <- tapply(flow_data$prop_spr_win, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
@@ -197,10 +206,7 @@ data_set <- data.frame(age_predictor = rep(seq_len(ncol(age_mat)), each = nrow(a
                        response_vec = c(age_mat),
                        ncohort = length(unique(c(cohort_mat))),
                        age_factor = factor(rep(seq_len(ncol(age_mat)), each = nrow(age_mat))))
-# data_set$system_vec <- factor(data_set$system_vec)
-
-# hack to fill temp data for now
-data_set$spwntmp_vec[is.na(data_set$spwntmp_vec)] <- mean(data_set$spwntmp_vec, na.rm = TRUE)
+data_set$system_vec <- factor(data_set$system_vec)
 
 ## TRY REPLACING WITH UNSTANDARDISED FLOWS TO CHECK SENSITIVITY TO THE
 ##    PROPORTIONAL STANDARDISATION APPROACH.
@@ -224,12 +230,19 @@ mod <- stan_glmer(response_vec ~ age_predictor + system_vec +
                     spwntmp_vec : age_factor +
                     (1 | year_vec) +
                     (1 | cohort_vec),
-                  iter = 10000, chains = 4,
+                  iter = 10000, chains = 3,
                   data = data_set,
-                  family = stats::poisson, cores = 4)
+                  family = stats::poisson, cores = 3)
 
 # validate model
-mod_cv <- validate_glmer(mod, folds = folds)
+mod_cv <- validate_glmer(mod, folds = 10, settings = list(iter = 100))
+
+# what about with site-based folds?
+## CAN'T DO THIS BECAUSE SYSTEMS ARE INCLUDED AS A FIXED PREDICTOR
+# fold_list <- sapply(seq_len(max(data_set$system_vec)), ??)
+# mod_cv2 <- validate_glmer(mod, folds = fold_list)
+## THINK ABOUT THIS: how can we handle different magnitudes of abundances among systems
+##                     without using system in the model? Or do we need to use system more?
 
 # plot some flow effects
 system_names <- c("Broken", "Goulburn",
