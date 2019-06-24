@@ -5,12 +5,12 @@ pred_list <- dir("data/flow-data/")[grep("to_use", dir("data/flow-data/"))]
 predictors <- vector("list", length = length(pred_list))
 
 # make sure dates parse correctly
-date_parse <- c(rep("dmy_HM", 3), "dmy", rep("dmy_HM", 4), "dmY", rep("dmy_HM", 9))
+date_parse <- c(rep("dmy_HM", 2), "dmy", rep("dmy_HM", 4), "dmY", rep("dmy_HM", 9))
 
 for (i in seq_along(pred_list)) {
   predictors[[i]] <- read.csv(paste0("./data/flow-data/", pred_list[i]),
                               stringsAsFactors = FALSE)
-  if (i == 9) {
+  if (i == 8) {
     predictors[[i]]$day <- day(parse_date_time(predictors[[i]]$date,
                                                orders = c("dmy_HM")))
     predictors[[i]]$day[c(21389:nrow(predictors[[i]]))] <-
