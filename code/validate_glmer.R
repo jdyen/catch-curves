@@ -18,8 +18,8 @@ validate_glmer <- function(obj, folds, settings = list()) {
   
   # return validation metrics
   list(r2_naive = cor(obj$fitted.values, all_vars[, 1]),
-       r2_cv = cor(do.call(c, sapply(cv_vals, function(x) x$fitted)),
-                   do.call(c, sapply(cv_vals, function(x) x$observed))))
+       r2_cv = cor(do.call(c, lapply(cv_vals, function(x) x$fitted)),
+                   do.call(c, lapply(cv_vals, function(x) x$observed))))
   
 }
 
