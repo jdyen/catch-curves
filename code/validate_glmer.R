@@ -2,7 +2,8 @@ validate_glmer <- function(obj, folds, settings = list()) {
   
   # unpack settings
   sets <- list(iter = obj$call$iter,
-               chains = obj$call$chains)
+               chains = obj$call$chains,
+               re.form = NULL)
   sets[names(settings)] <- settings
   
   # how many obs?
@@ -16,8 +17,12 @@ validate_glmer <- function(obj, folds, settings = list()) {
   # run cv function
   cv_vals <- lapply(folds, cv_fun, obj, all_vars, sets)
   
+  # extract fitted values from the model
+  fitted_values <- apply(posterior_predict(obj, re.form = sets$re.form),
+                         2, mean)
+  
   # return validation metrics
-  list(r2_naive = cor(obj$fitted.values, all_vars[, 1]),
+  list(r2_naive = cor(fitted_values, all_vars[, 1]),
        r2_cv = cor(do.call(c, lapply(cv_vals, function(x) x$fitted)),
                    do.call(c, lapply(cv_vals, function(x) x$observed))))
   
@@ -38,7 +43,7 @@ cv_fun <- function(idx, obj, all_vars, settings) {
                               iter = iter, chains = chains, cores = 1)
 
   # predict
-  out <- posterior_predict(out, newdata = data_test)
+  out <- posterior_predict(out, newdata = data_test, re.form = settings$re.form)
   
   # return mean predictions
   list(fitted = apply(out, 2, mean), observed = data_test[, 1])
