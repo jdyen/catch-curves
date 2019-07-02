@@ -8,7 +8,7 @@ library(rstanarm)
 source("code/helpers.R")
 
 # load compiled survey data
-alldat <- readRDS("data/data-loaded-Jun19.rds")
+alldat <- readRDS("data/data-loaded-Jul19.rds")
 
 # filter survey data to MC
 to_keep <- alldat$Scientific.Name == "Maccullochella peelii"
@@ -16,7 +16,7 @@ alldat <- alldat[to_keep, ]
 alldat$Common.Name <- NULL
 
 # need to load flow data
-flow_data <- readRDS("data/flow-data-loaded-Jun19.rds")
+flow_data <- readRDS("data/flow-data-loaded-Jul19.rds")
 
 # filter to MC
 flow_data <- flow_data[to_keep, ]
@@ -32,7 +32,8 @@ survey_data <- data.frame(length = alldat$totallength / 10,
                           system = alldat$SYSTEM,
                           site = alldat$SITE_CODE,
                           year = alldat$YEAR,
-                          dataset = alldat$dataset)
+                          dataset = alldat$dataset,
+                          effort = alldat$total_no_passes * alldat$seconds)
 flow_data <- flow_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 survey_data <- survey_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 survey_data$system <- as.integer(as.factor(survey_data$system))
@@ -63,6 +64,9 @@ age_mat <- do.call(rbind, c(age_counts))
 age_mat <- do.call(rbind, c(age_counts))
 age_mat <- age_mat[, 1:4]
 
+# need to bin survey effort as well
+effort <- tapply(survey_data$effort, list(survey_data$system, survey_data$year), mean)
+
 # include flow in year of survey only, assume cohort effects are captured in
 #   survival link among years (flow affects YOY, which carries through to later years)
 rrang_compiled <- tapply(flow_data$rrang_spwn_mld, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
@@ -89,6 +93,7 @@ year_info <- rep(colnames(age_counts), each = nsystem)
 to_keep <- !sapply(c(age_counts), is.null)
 system_info <- as.numeric(system_info[to_keep])
 year_info <- as.numeric(year_info[to_keep])
+effort <- effort[to_keep]
 rrang_compiled <- rrang_compiled[to_keep]
 rrang_ym1_compiled <- rrang_ym1_compiled[to_keep]
 psprw_compiled <- psprw_compiled[to_keep]
@@ -157,7 +162,8 @@ data_set <- data.frame(age_predictor = rep(seq_len(ncol(age_mat)), each = nrow(a
                        cohort_vec = c(cohort_mat),
                        response_vec = c(age_mat),
                        ncohort = length(unique(c(cohort_mat))),
-                       age_factor = factor(rep(seq_len(ncol(age_mat)), each = nrow(age_mat))))
+                       age_factor = factor(rep(seq_len(ncol(age_mat)), each = nrow(age_mat))),
+                       sampling_effort = effort)
 data_set$system_vec <- factor(data_set$system_vec)
 
 # mcmc settings
@@ -165,19 +171,38 @@ n_iter <- 10000
 n_chains <- 4
 n_cores <- n_chains
 
+# create freq-hist plots
+
+## SWITCH FROM LT WINTER TO LT ANNUAL MEDIAN
+# TEMP ONLY FOR SPAWNING -- CAN WE FOCUS ON YOY ONLY?
+# CHANGE IN FLOW SPR/SUM IS ABOUT SPAWNING
+## WINTER IS AFFECTING 1YO-up because flow is pre-spawning.
+
+## COUDL FIT MULTIPLE MODELS:
+## YOY - SPRING FLOWS ,SUMMER FLOWS, SPWN_TMP, YM1_MAX flows.
+## SURVIVAL MODEL
+
+## RRANG IS NOW PROPORTIONAL CHANGE (max / min)
+## LT_WIN is now LT_MEDIAN over all months (for psprw and psumw)
+
+# COUDL ADD YM2 if fits? (probably not; could use some average of two years??)
+
 # fit the full model with all predictors
 mod_full <- stan_glmer(response_vec ~ age_predictor + 
                          (rrang_vec + rrang_ym1_vec +
                             psprw_vec + psprw_ym1_vec +
                             psumw_vec + psumw_ym1_vec + 
+                            (psumw_vec ^ 2) + 
                             minwin_vec + spwntmp_vec | system_vec) +
                          (-1 +
                             rrang_vec + rrang_ym1_vec +
                             psprw_vec + psprw_ym1_vec +
                             psumw_vec + psumw_ym1_vec +
+                            (psumw_vec ^ 2) +
                             minwin_vec + spwntmp_vec | age_factor) +
                          (1 | year_vec) +
-                         (1 | cohort_vec),
+                         (1 | cohort_vec) +
+                         offset(sampling_effort),
                        iter = n_iter, chains = n_chains,
                        data = data_set,
                        family = stats::poisson, cores = n_cores)
@@ -240,5 +265,7 @@ additional_data <- list(flow_scales = flow_scales,
                         age_mat = age_mat,
                         nyear = nyear,
                         nsystem = nsystem,
-                        system_info = system_info)
+                        system_info = system_info,
+                        year_info = year_info,
+                        cohort_mat = cohort_mat)
 saveRDS(additional_data, file = "outputs/fitted/additional-data.rds")

@@ -1,5 +1,3 @@
-## ADD PLOT of variance terms from random effects (full model only)
-
 # load some helper functions
 source("code/plot-helpers.R")
 
@@ -14,6 +12,8 @@ age_mat <- additional_data$age_mat
 nyear <- additional_data$nyear
 nsystem <- additional_data$nsystem
 system_info <- additional_data$system_info
+year_info <- additional_data$year_info
+cohort_mat <- additional_data$cohort_mat
 
 # plot some flow effects
 system_names <- c("Broken", "Goulburn",
@@ -24,11 +24,19 @@ for (i in seq_along(system_names)) {
   # spring flows relative to long-term winter median
   pdf(file = paste0("outputs/plots/spring-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
   par(mfrow = c(2, 2))
-  plot_associations(mod, variable = "psprw_ym1_vec", data = data_set,
+  plot_associations(mod, variable = "psprw_vec", data = data_set,
                     rescale = flow_scales, xlab = "Spring flow proportional to long-term winter average",
                     system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
   dev.off()
   
+  # previous spring flows relative to long-term winter median
+  pdf(file = paste0("outputs/plots/spring-ym1-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
+  par(mfrow = c(2, 2))
+  plot_associations(mod, variable = "psprw_ym1_vec", data = data_set,
+                    rescale = flow_scales, xlab = "Spring flow proportional to long-term winter average",
+                    system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
+  dev.off()
+
   # winter low flows
   pdf(file = paste0("outputs/plots/winter-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
   par(mfrow = c(2, 2))
@@ -45,6 +53,14 @@ for (i in seq_along(system_names)) {
                     system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
   dev.off()
   
+  # previous summer flows relative to long-term winter median
+  pdf(file = paste0("outputs/plots/summer-ym1-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
+  par(mfrow = c(2, 2))
+  plot_associations(mod, variable = "psumw_ym1_vec", data = data_set,
+                    rescale = flow_scales, xlab = "Summer flow proportional to long-term winter average",
+                    system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
+  dev.off()
+  
   # temperature effects
   pdf(file = paste0("outputs/plots/spawning-temp-effects-", system_names[i],".pdf"), height = 8, width = 6)
   par(mfrow = c(2, 2))
@@ -57,6 +73,14 @@ for (i in seq_along(system_names)) {
   pdf(file = paste0("outputs/plots/variability-spawning-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
   par(mfrow = c(2, 2))
   plot_associations(mod, variable = "rrang_vec", data = data_set,
+                    rescale = flow_scales, xlab = "Maximum three-day change in flow (ML)",
+                    system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
+  dev.off()
+  
+  # variability in previous spawning flows
+  pdf(file = paste0("outputs/plots/variability-ym1-spawning-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
+  par(mfrow = c(2, 2))
+  plot_associations(mod, variable = "rrang_ym1_vec", data = data_set,
                     rescale = flow_scales, xlab = "Maximum three-day change in flow (ML)",
                     system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
   dev.off()
@@ -160,7 +184,28 @@ for (i in seq_len(nsystem)) {
 }
 
 # plot variance components
-var_corr <- VarCorr(mod)
-var_flat <- lapply(var_corr, function(x) attr(x, "stddev"))
-## can pull these out but need to chase up credible intervals around
-##   these. Should exist.
+PPD <- posterior_predict(mod)
+vars <- apply(PPD, MARGIN = 1, FUN = var)
+PPD_sys <- posterior_predict(mod, re.form = ~ (rrang_vec + rrang_ym1_vec +
+                                               psprw_vec + psprw_ym1_vec +
+                                               psumw_vec + psumw_ym1_vec + 
+                                               minwin_vec + spwntmp_vec | system_vec))
+vars_sys <- apply(PPD_sys, MARGIN = 1, FUN = var)
+PPD_age <- posterior_predict(mod, re.form = ~ (-1 +
+                                                 rrang_vec + rrang_ym1_vec +
+                                                 psprw_vec + psprw_ym1_vec +
+                                                 psumw_vec + psumw_ym1_vec +
+                                                 minwin_vec + spwntmp_vec | age_factor))
+vars_age <- apply(PPD_age, MARGIN = 1, FUN = var)
+PPD_year <- posterior_predict(mod, re.form = ~ (1 | year_vec))
+vars_year <- apply(PPD_year, MARGIN = 1, FUN = var)
+PPD_cohort <- posterior_predict(mod, re.form = ~ (1 | cohort_vec))
+vars_cohort <- apply(PPD_cohort, MARGIN = 1, FUN = var)
+PPD_0 <- posterior_predict(mod, re.form = ~ 0)
+vars_0 <- apply(PPD_0, MARGIN = 1, FUN = var)
+ 
+# pull out variance explained by each
+boxplot(vars_0, vars_year, vars_cohort, vars_sys, vars_age, vars, log = "y",
+        names = c("Base", "Year", "Cohort", "System", "Age", "All"))
+
+## MAKES SENSE: LOOKS AT AMOUNT OF VARIANCE ADDED TO PREDICTED VALUES BY EACH RE.

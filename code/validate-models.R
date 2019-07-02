@@ -7,9 +7,6 @@ library(rstanarm)
 # load some helper functions
 source("code/validate_glmer.R")
 
-## To check: make sure validate function is subsetting data correctly.
-##   Seems much quicker on CV for some reason.
-
 # load fitted models and data
 all_mods <- dir("outputs/fitted")
 all_mods <- all_mods[grep("-model.rds", all_mods)]
@@ -42,12 +39,18 @@ formula_tmp <- c(~ (rrang_vec + rrang_ym1_vec +
 # validate models
 mod_cv <- list()
 for (i in seq_along(mod_list)) {
-  mod_cv[[i]] <- validate_glmer(mod_list[[i]], folds = 4,
-                                settings = list(iter = 500, re.form = formula_tmp[[i]]))
+  mod_cv[[i]] <- validate_glmer(mod_list[[i]], folds = 10,
+                                settings = list(iter = 5000, re.form = formula_tmp[[i]]))
 }
+names(mod_cv) <- gsub("-", "_", sapply(strsplit(all_mods, "\\."), function(x) x[1]))
+saveRDS(mod_cv, file = "outputs/fitted/mod_cv.rds")
 
 # what about with site-based folds?
 fold_list <- lapply(seq_along(unique(data_set$system_vec)), function(i) which(data_set$system_vec == i))
 mod_transferability <- list()
-for (i in seq_along(mod_list))
-  mod_transferability[[i]] <- validate_glmer(mod_list[[i]], folds = fold_list, settings = list(iter = 5000))
+for (i in seq_along(mod_list)) {
+  mod_transferability[[i]] <- validate_glmer(mod_list[[i]], folds = fold_list,
+                                             settings = list(iter = 5000, re.form = formula_tmp[[i]]))
+}
+names(mod_transferability) <- gsub("-", "_", sapply(strsplit(all_mods, "\\."), function(x) x[1]))
+saveRDS(mod_transferability, file = "outputs/fitted/mod_transferability.rds")

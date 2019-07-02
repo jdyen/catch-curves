@@ -217,7 +217,8 @@ flow_tm1 <- function(x, flow, na_thresh = 0.2, year_lag = 0) {
       if (ncol(flow_tmp) > 1)
         flow_tmp <- flow_tmp[, -grep("qc", colnames(flow_tmp))]
     }
-    lt_medwin <- median(flow_tmp[month(x$Event_Date) %in% c(6:8)], na.rm = TRUE)
+    lt_medwin <- median(flow_tmp[month(x$Event_Date) %in% c(1:12)], na.rm = TRUE)
+    # lt_medwin <- median(flow_tmp[month(x$Event_Date) %in% c(6:8)], na.rm = TRUE)
     lt_qwin <- quantile(flow_tmp[month(x$Event_Date) %in% c(5:7)], p = 0.1, na.rm = TRUE)
     st_medwin <- out["median_win_mld"]
     new_vars <- c(out["median_spr_mld"] / st_medwin,
