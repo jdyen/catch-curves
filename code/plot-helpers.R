@@ -1,9 +1,12 @@
+## NEED TO ADD OFFSET DIRECTLY TO PREDICTIONS
+
 # something
 plot_associations <- function(mod,
                               variable, data, rescale = NULL,
                               nplot = 100,
                               system = 5, cohort = 1,  year = 15,
                               labels = NULL,
+                              age_set = NULL,
                               xlab = "Flow (ML / day)", ylab = "Abundance",
                               ...) {
 
@@ -13,7 +16,8 @@ plot_associations <- function(mod,
                          psprw_ym1_vec = rep(0, nplot),
                          psumw_vec = rep(0, nplot),
                          psumw_ym1_vec = rep(0, nplot),
-                         minwin_vec = rep(0, nplot),
+                         maxann_vec = rep(0, nplot),
+                         maxann_ym1_vec = rep(0, nplot),
                          spwntmp_vec = rep(0, nplot),
                          system_vec = factor(rep(system, nplot)),
                          year_vec = rep(year, nplot),
@@ -29,13 +33,24 @@ plot_associations <- function(mod,
     label_set <- c("Young-of-year", paste0(seq_len(max(data$age_predictor)), " year olds"))
 
   # calculate fitted catch curves for each age class
-  flow_pred <- vector("list", length = max(data$age_predictor))
-  for (i in seq_len(max(data$age_predictor))) {
-    age_set <- rep(i, nplot)
-    data_tmp$age_predictor <- age_set
-    data_tmp$age_factor <- factor(age_set)
-    flow_pred[[i]] <- posterior_predict(mod, newdata = data_tmp)
-  } 
+  if (is.null(age_set)) {
+    flow_pred <- vector("list", length = max(data$age_predictor))
+    for (i in seq_len(max(data$age_predictor))) {
+      age_set <- rep(i, nplot)
+      data_tmp$age_predictor <- age_set
+      data_tmp$age_factor <- factor(age_set)
+      flow_pred[[i]] <- posterior_predict(mod, newdata = data_tmp)
+    } 
+  } else {
+    flow_pred <- vector("list", length = length(age_set))
+    for (i in seq_along(age_set)) {
+      age_set <- rep(age_set[i], nplot)
+      data_tmp$age_predictor <- age_set
+      data_tmp$age_factor <- factor(age_set)
+      flow_pred[[i]] <- posterior_predict(mod, newdata = data_tmp)
+      label_set <- label_set[age_set]
+    } 
+  }
   
   # summarise the predicted catch curves as mean and 95% credible intervals
   flow_mean <- lapply(flow_pred, function(x) apply(x, 2, median, na.rm = TRUE))

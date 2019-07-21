@@ -1,3 +1,5 @@
+## NEED TO ADD OFFSET TO PREDICTIONS
+
 validate_glmer <- function(obj, folds, settings = list()) {
   
   # unpack settings

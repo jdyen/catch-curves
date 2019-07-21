@@ -37,11 +37,19 @@ for (i in seq_along(system_names)) {
                     system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
   dev.off()
 
-  # winter low flows
-  pdf(file = paste0("outputs/plots/winter-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
+  # max annual flows
+  pdf(file = paste0("outputs/plots/max-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
   par(mfrow = c(2, 2))
-  plot_associations(mod, variable = "minwin_vec", data = data_set,
-                    rescale = flow_scales, xlab = "Number of winter days below long-term 10th percentile",
+  plot_associations(mod, variable = "maxann_vec", data = data_set,
+                    rescale = flow_scales, xlab = "Maximum daily flow (z score)",
+                    system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
+  dev.off()
+  
+  # previous max annual flows
+  pdf(file = paste0("outputs/plots/max-ym1-flow-effects-", system_names[i],".pdf"), height = 8, width = 6)
+  par(mfrow = c(2, 2))
+  plot_associations(mod, variable = "maxann_ym1_vec", data = data_set,
+                    rescale = flow_scales, xlab = "Maximum antecedent daily flow (z score)",
                     system = i, cohort = data_set$cohort_vec[data_set$system_vec == i][1])
   dev.off()
   
@@ -100,7 +108,8 @@ for (sys_set in seq_len(nsystem)) {
   psprw_ym1_sub <- psprw_ym1_std[system_info == sys_set]
   psumw_sub <- psumw_std[system_info == sys_set]
   psumw_ym1_sub <- psumw_ym1_std[system_info == sys_set]
-  minwin_sub <- minwin_std[system_info == sys_set]
+  maxann_sub <- maxann_std[system_info == sys_set]
+  maxann_ym1_sub <- maxann_ym1_std[system_info == sys_set]
   spwntmp_sub <- spwntmp_std[system_info == sys_set]
   spwntmp_sub[is.na(spwntmp_sub)] <- 0
   if (is.null(nrow(age_sub)))
@@ -116,7 +125,8 @@ for (sys_set in seq_len(nsystem)) {
                                                           psprw_ym1_vec = rep(psprw_ym1_sub, times = n_obs_tmp),
                                                           psumw_vec = rep(psumw_sub, times = n_obs_tmp),
                                                           psumw_ym1_vec = rep(psumw_ym1_sub, times = n_obs_tmp),
-                                                          minwin_vec = rep(minwin_sub, times = n_obs_tmp),
+                                                          maxann_vec = rep(maxann_sub, times = n_obs_tmp),
+                                                          maxann_ym1_vec = rep(maxann_ym1_sub, times = n_obs_tmp),
                                                           spwntmp_vec = rep(spwntmp_sub, times = n_obs_tmp)))
   pred_mid <- matrix(apply(pred_mid, 2, median), ncol = n_obs_tmp)
   sys_year_obs[year_sub, , sys_set] <- age_sub
@@ -187,15 +197,19 @@ for (i in seq_len(nsystem)) {
 PPD <- posterior_predict(mod)
 vars <- apply(PPD, MARGIN = 1, FUN = var)
 PPD_sys <- posterior_predict(mod, re.form = ~ (rrang_vec + rrang_ym1_vec +
-                                               psprw_vec + psprw_ym1_vec +
-                                               psumw_vec + psumw_ym1_vec + 
-                                               minwin_vec + spwntmp_vec | system_vec))
+                                                 psprw_vec + psprw_ym1_vec +
+                                                 psumw_vec + psumw_ym1_vec + 
+                                                 (psumw_vec ^ 2) + 
+                                                 maxann_vec + maxann_ym1_vec +
+                                                 spwntmp_vec | system_vec))
 vars_sys <- apply(PPD_sys, MARGIN = 1, FUN = var)
 PPD_age <- posterior_predict(mod, re.form = ~ (-1 +
                                                  rrang_vec + rrang_ym1_vec +
                                                  psprw_vec + psprw_ym1_vec +
                                                  psumw_vec + psumw_ym1_vec +
-                                                 minwin_vec + spwntmp_vec | age_factor))
+                                                 (psumw_vec ^ 2) + 
+                                                 maxann_vec + maxann_ym1_vec +
+                                                 spwntmp_vec | age_factor))
 vars_age <- apply(PPD_age, MARGIN = 1, FUN = var)
 PPD_year <- posterior_predict(mod, re.form = ~ (1 | year_vec))
 vars_year <- apply(PPD_year, MARGIN = 1, FUN = var)

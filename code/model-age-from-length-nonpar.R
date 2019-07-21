@@ -54,7 +54,7 @@ draws <- mcmc(mod, n_samples = 5000, warmup = 5000, initial_values = init_set)
 # make up a prediction function from draws
 age_pred <- function(c_samples, t_samples, k_samples, len_samples, lengths, n = 1000) {
 
-  idx <- sample(seq_len(length(beta_samples)), size = n, replace = TRUE)
+  idx <- sample(seq_len(length(c_samples)), size = n, replace = TRUE)
 
   out <- matrix(NA, nrow = n, ncol = length(lengths))
   for (i in seq_along(lengths))
@@ -73,7 +73,17 @@ lengths <- seq(0, 1000, by = 50)
 
 to_plot <- age_pred(c_samples, t_samples, k_samples, len_samples, lengths / 10)
 to_plot[to_plot < 0] <- 0
-to_plot <- round(to_plot)
+# to_plot <- round(to_plot)
+
+
+
+## MIGHT NEED THIS TO AVOID ASSUMPTION THAT 0.5 = 1-year old
+# settings for linear model
+# max_age <- ceiling(max(age_vec))
+# we need binned data by site and year
+# age_seq <- seq(-0.4, max_age + 1, by = 1)
+# age_counts <- tapply(age_vec, list(survey_data$system, survey_data$year), hist_fn, breaks = age_seq)
+
 
 # proportions function
 prop_equal <- function(x, range) {
@@ -92,12 +102,29 @@ colnames(alk) <- c(0:max(to_plot))
 
 FSA::alkPlot(alk, type = "area", pal = "grey")
 
+len_par <- 150
+time_par <- 6
+k_par <- 0.0011
+c_par <- -103
+mean_age_pred <- inverse_growth(oti_analysis_data$length / 10,
+                                mean(len_samples), mean(t_samples),
+                                mean(k_samples), mean(c_samples))
+
+mean_age_pred <- inverse_growth(oti_analysis_data$length / 10,
+                                len_par, time_par, k_par, c_par)
+
+
 plot(oti_analysis_data$age,
-     inverse_growth(oti_analysis_data$length / 10,
-                    mean(len_samples), mean(t_samples),
-                    mean(k_samples), mean(c_samples)),
+     mean_age_pred,
      bty = "l", pch = 16,
      xlab = "True age", ylab = "Modelled age", col = "gray50", las = 1)
+
+plot(oti_analysis_data$age,
+     round(mean_age_pred - 0.1),
+     bty = "l", pch = 16,
+     xlab = "True age", ylab = "Modelled age",
+     col = scales::alpha("black", 0.4), las = 1)
+
 
 for(i in c(0, seq_len(30)))
   lines(c(0, 2000), c(i, i), lty = 1, lwd = 1, col = ggplot2::alpha("grey50", 0.5))

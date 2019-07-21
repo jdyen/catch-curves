@@ -3,6 +3,16 @@ hist_fn <- function(x, breaks) {
   hist(x, breaks = breaks, plot = FALSE)$counts
 }
 
+# create a pairwise matrix matching classes from two variables
+classify <- function(x, y) {
+  out <- matrix(0, nrow = max(x, na.rm = TRUE), ncol = max(y, na.rm = TRUE))
+  for (i in seq_along(x)) {
+    if (!is.na(x[i]) & !is.na(y[i]))
+      out[x[i], y[i]] <- out[x[i], y[i]] + 1
+  }
+  out
+}
+
 # define a function to convert size to age based on model in Todd & Koehn 2008
 inverse_growth <- function(x, length_inf, time_zero, k_param, c_param) {
   
@@ -15,4 +25,8 @@ inverse_growth <- function(x, length_inf, time_zero, k_param, c_param) {
   par1 * log(par2 * (par3 - par4))
   
 }
+
+# rebase a vector intended as an index to start at 1 and count up with no gaps
+rebase_index <- function(x)
+  as.integer(as.factor(x))
 

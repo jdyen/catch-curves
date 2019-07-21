@@ -794,8 +794,11 @@ get_range2 <- function(x) {
   
   out <- NA
   
-  if (any(!is.na(x)))
-    out <- max(x, na.rm = TRUE) / min(x, na.rm = TRUE)
+  if (any(!is.na(x))) {
+    out <- 0
+    if (min(x, na.rm = TRUE) > 0)
+      out <- max(x, na.rm = TRUE) / min(x, na.rm = TRUE)
+  }
   
   out
   
@@ -829,3 +832,23 @@ rolling_range <- function(data, lag, variable = NULL){
   
 }   
 
+# function to rename river systems from sites
+system_switch_fun <- function(x) {
+  
+  x <- as.character(x)
+  
+  out <- rep(NA, length(x))
+  for (i in seq_along(x)) {
+    
+    out[i] <- switch(substr(x[i], 1, 2),
+                     "LO" = "LODDON",
+                     "GO" = "GOULBURN",
+                     "BR" = "BROKEN",
+                     "PC" = "PYRAMIDCK",
+                     "CA" = "CAMPASPE")
+    
+  }
+  
+  out
+  
+}

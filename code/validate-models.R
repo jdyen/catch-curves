@@ -19,21 +19,29 @@ data_set <- readRDS("outputs/fitted/data-set.rds")
 formula_tmp <- c(~ (rrang_vec + rrang_ym1_vec +
                       psprw_vec + psprw_ym1_vec +
                       psumw_vec + psumw_ym1_vec + 
-                      minwin_vec + spwntmp_vec | system_vec) +
+                      (psumw_vec ^ 2) + 
+                      maxann_vec + maxann_ym1_vec +
+                      spwntmp_vec | system_vec) +
                    (-1 +
                       rrang_vec + rrang_ym1_vec +
                       psprw_vec + psprw_ym1_vec +
                       psumw_vec + psumw_ym1_vec +
-                      minwin_vec + spwntmp_vec | age_factor),
+                      (psumw_vec ^ 2) + 
+                      maxann_vec + maxann_ym1_vec +
+                      spwntmp_vec | age_factor),
                  ~ (rrang_vec + rrang_ym1_vec +
                       psprw_vec + psprw_ym1_vec +
                       psumw_vec + psumw_ym1_vec + 
-                      minwin_vec + spwntmp_vec | system_vec),
+                      (psumw_vec ^ 2) + 
+                      maxann_vec + maxann_ym1_vec +
+                      spwntmp_vec | system_vec),
                  ~ (1 | system_vec),
                  ~ (-1 + rrang_vec + rrang_ym1_vec +
                       psprw_vec + psprw_ym1_vec +
                       psumw_vec + psumw_ym1_vec +  
-                      minwin_vec + spwntmp_vec | age_factor),
+                      (psumw_vec ^ 2) + 
+                      maxann_vec + maxann_ym1_vec +
+                      spwntmp_vec | age_factor),
                  ~ 0)
 
 # validate models

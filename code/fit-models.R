@@ -76,9 +76,19 @@ psumw_compiled <- tapply(flow_data$prop_sum_lt_win, list(survey_data$system, sur
 psprw_ym1_compiled <- tapply(flow_data$prop_spr_lt_win_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 psumw_ym1_compiled <- tapply(flow_data$prop_sum_lt_win_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 minwin_compiled <- tapply(flow_data$numlow_days, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+maxann_compiled <- tapply(flow_data$maxan_mld, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+maxann_ym1_compiled <- tapply(flow_data$maxan_mld_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 spwn_temp_compiled <- tapply(flow_data$spwntmp_c, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
 
+# standardise maximum annual flow with z-scores
+maxann_compiled <- sweep(maxann_compiled, 1, rowMeans(maxann_compiled, na.rm = TRUE), "-")
+maxann_compiled <- sweep(maxann_compiled, 1, apply(maxann_compiled, 1, sd, na.rm = TRUE), "/")
+maxann_ym1_compiled <- sweep(maxann_ym1_compiled, 1, rowMeans(maxann_ym1_compiled, na.rm = TRUE), "-")
+maxann_ym1_compiled <- sweep(maxann_ym1_compiled, 1, apply(maxann_ym1_compiled, 1, sd, na.rm = TRUE), "/")
+
 # replace King temperature data (all missing) with Ovens data
+spwn_temp_compiled[5, 12:13] <- mean(spwn_temp_compiled[5, c(11, 14)])
+spwn_temp_compiled[5, 18] <- mean(spwn_temp_compiled[5, c(17, 19)])
 spwn_temp_compiled[3, ]  <- spwn_temp_compiled[5, ]
 
 ## MISSING temperature data for early Murray years
@@ -88,6 +98,8 @@ spwn_temp_compiled[4, 1:4] <- mean(spwn_temp_compiled[4, 5:10])
 # pull out system and year info
 system_info <- rep(rownames(age_counts), times = nyear)
 year_info <- rep(colnames(age_counts), each = nsystem)
+
+## AUTOMATE THIS FOR ANY SET OF PREDICTORS
 
 # subset to observed years and systems
 to_keep <- !sapply(c(age_counts), is.null)
@@ -102,6 +114,8 @@ psprw_ym1_compiled <- psprw_ym1_compiled[to_keep]
 psumw_ym1_compiled <- psumw_ym1_compiled[to_keep]
 minwin_compiled <- minwin_compiled[to_keep]
 spwn_temp_compiled <- spwn_temp_compiled[to_keep]
+maxann_compiled <- maxann_compiled[to_keep]
+maxann_ym1_compiled <- maxann_ym1_compiled[to_keep]
 
 # standardise flow values
 rrang_std <- scale(rrang_compiled)
@@ -112,6 +126,8 @@ psprw_ym1_std <- scale(psprw_ym1_compiled)
 psumw_ym1_std <- scale(psumw_ym1_compiled)
 minwin_std <- scale(minwin_compiled)
 spwntmp_std <- scale(spwn_temp_compiled)
+maxann_std <- scale(maxann_compiled)
+maxann_ym1_std <- scale(maxann_ym1_compiled)
 
 # pull out means and SDs of unscaled flow variables
 flow_scales <- list()
@@ -131,6 +147,10 @@ flow_scales$minwin_vec$mean <- attributes(minwin_std)$`scaled:center`
 flow_scales$minwin_vec$sd <- attributes(minwin_std)$`scaled:scale`
 flow_scales$spwntmp_vec$mean <- attributes(spwntmp_std)$`scaled:center`
 flow_scales$spwntmp_vec$sd <- attributes(spwntmp_std)$`scaled:scale`
+flow_scales$maxann_vec$mean <- attributes(maxann_std)$`scaled:center`
+flow_scales$maxann_vec$sd <- attributes(maxann_std)$`scaled:scale`
+flow_scales$maxann_ym1_vec$mean <- attributes(maxann_ym1_std)$`scaled:center`
+flow_scales$maxann_ym1_vec$sd <- attributes(maxann_ym1_std)$`scaled:scale`
 
 # create a matrix of indices identifying cohorts
 cohort_mat <- matrix(NA, nrow = length(system_info), ncol = ncol(age_mat))
@@ -158,12 +178,14 @@ data_set <- data.frame(age_predictor = rep(seq_len(ncol(age_mat)), each = nrow(a
                        psumw_vec = rep(psumw_std, times = ncol(age_mat)),
                        psumw_ym1_vec = rep(psumw_ym1_std, times = ncol(age_mat)),
                        minwin_vec = rep(minwin_std, times = ncol(age_mat)),
+                       maxann_vec = rep(maxann_std, times = ncol(age_mat)),
+                       maxann_ym1_vec = rep(maxann_ym1_std, times = ncol(age_mat)),
                        spwntmp_vec = rep(spwntmp_std, times = ncol(age_mat)),
                        cohort_vec = c(cohort_mat),
                        response_vec = c(age_mat),
                        ncohort = length(unique(c(cohort_mat))),
                        age_factor = factor(rep(seq_len(ncol(age_mat)), each = nrow(age_mat))),
-                       sampling_effort = effort)
+                       sampling_effort = effort / 60)
 data_set$system_vec <- factor(data_set$system_vec)
 
 # mcmc settings
@@ -172,8 +194,6 @@ n_chains <- 4
 n_cores <- n_chains
 
 # create freq-hist plots
-
-## SWITCH FROM LT WINTER TO LT ANNUAL MEDIAN
 # TEMP ONLY FOR SPAWNING -- CAN WE FOCUS ON YOY ONLY?
 # CHANGE IN FLOW SPR/SUM IS ABOUT SPAWNING
 ## WINTER IS AFFECTING 1YO-up because flow is pre-spawning.
@@ -182,29 +202,32 @@ n_cores <- n_chains
 ## YOY - SPRING FLOWS ,SUMMER FLOWS, SPWN_TMP, YM1_MAX flows.
 ## SURVIVAL MODEL
 
+## ADDED OFFSET for sampling effort (seconds * no_passes) (check that should be log transformed (on link scale or not?))
 ## RRANG IS NOW PROPORTIONAL CHANGE (max / min)
+## Check RRANG if min(x) == 0 [when rrang -> Inf]
 ## LT_WIN is now LT_MEDIAN over all months (for psprw and psumw)
 
 # COUDL ADD YM2 if fits? (probably not; could use some average of two years??)
 
 # fit the full model with all predictors
 mod_full <- stan_glmer(response_vec ~ age_predictor + 
-                         (rrang_vec + rrang_ym1_vec +
-                            psprw_vec + psprw_ym1_vec +
-                            psumw_vec + psumw_ym1_vec + 
+                         (rrang_vec + #rrang_ym1_vec +
+                            psprw_vec + #psprw_ym1_vec +
+                            psumw_vec + #psumw_ym1_vec + 
                             (psumw_vec ^ 2) + 
-                            minwin_vec + spwntmp_vec | system_vec) +
+                            maxann_vec + #maxann_ym1_vec +
+                            spwntmp_vec | system_vec) +
                          (-1 +
-                            rrang_vec + rrang_ym1_vec +
-                            psprw_vec + psprw_ym1_vec +
-                            psumw_vec + psumw_ym1_vec +
+                            rrang_vec + #rrang_ym1_vec +
+                            psprw_vec + #psprw_ym1_vec +
+                            psumw_vec + #psumw_ym1_vec +
                             (psumw_vec ^ 2) +
-                            minwin_vec + spwntmp_vec | age_factor) +
+                            maxann_vec + #maxann_ym1_vec +
+                            spwntmp_vec | age_factor) +
                          (1 | year_vec) +
-                         (1 | cohort_vec) +
-                         offset(sampling_effort),
+                         (1 | cohort_vec),
                        iter = n_iter, chains = n_chains,
-                       data = data_set,
+                       data = data_set, offset = log(sampling_effort),
                        family = stats::poisson, cores = n_cores)
 
 # fit a reduced model without age-specific flow effects
@@ -212,11 +235,13 @@ mod_noage <- stan_glmer(response_vec ~ age_predictor +
                           (rrang_vec + rrang_ym1_vec +
                              psprw_vec + psprw_ym1_vec +
                              psumw_vec + psumw_ym1_vec + 
-                             minwin_vec + spwntmp_vec | system_vec) +
+                             (psumw_vec ^ 2) + 
+                             maxann_vec + maxann_ym1_vec +
+                             spwntmp_vec | system_vec) +
                           (1 | year_vec) +
                           (1 | cohort_vec),
                         iter = n_iter, chains = n_chains,
-                        data = data_set,
+                        data = data_set, offset = log(sampling_effort),
                         family = stats::poisson, cores = n_cores)
 
 # fit a reduced model without system-specific flow effects
@@ -224,11 +249,13 @@ mod_nosys <- stan_glmer(response_vec ~ age_predictor +
                           (-1 + rrang_vec + rrang_ym1_vec +
                              psprw_vec + psprw_ym1_vec +
                              psumw_vec + psumw_ym1_vec + 
-                             minwin_vec + spwntmp_vec | age_factor) +
+                             (psumw_vec ^ 2) + 
+                             maxann_vec + maxann_ym1_vec +
+                             spwntmp_vec | age_factor) +
                           (1 | year_vec) +
                           (1 | cohort_vec),
                         iter = n_iter, chains = n_chains,
-                        data = data_set,
+                        data = data_set, offset = log(sampling_effort),
                         family = stats::poisson, cores = n_cores)
 
 # fit a reduced model without system- or age-specific flow effects
@@ -236,11 +263,13 @@ mod_nosys_noage <- stan_glmer(response_vec ~ age_predictor +
                                 rrang_vec + rrang_ym1_vec +
                                 psprw_vec + psprw_ym1_vec +
                                 psumw_vec + psumw_ym1_vec + 
-                                minwin_vec + spwntmp_vec +
+                                (psumw_vec ^ 2) + 
+                                maxann_vec + maxann_ym1_vec +
+                                spwntmp_vec +
                                 (1 | year_vec) +
                                 (1 | cohort_vec),
                               iter = n_iter, chains = n_chains,
-                              data = data_set,
+                              data = data_set, offset = log(sampling_effort),
                               family = stats::poisson, cores = n_cores)
 
 # fit a reduced model without flow predictors
@@ -249,7 +278,7 @@ mod_noflow <- stan_glmer(response_vec ~ age_predictor +
                            (1 | year_vec) +
                            (1 | cohort_vec),
                          iter = n_iter, chains = n_chains,
-                         data = data_set,
+                         data = data_set, offset = log(sampling_effort),
                          family = stats::poisson, cores = n_cores)
 
 # save fitted model/s
