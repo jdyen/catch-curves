@@ -30,3 +30,7 @@ inverse_growth <- function(x, length_inf, time_zero, k_param, c_param) {
 rebase_index <- function(x)
   as.integer(as.factor(x))
 
+# rescale data and store the standardisations
+extract_standards <- function(x) {
+  c("mean" = mean(x, na.rm = TRUE), "sd" = sd(x, na.rm = TRUE))
+}
