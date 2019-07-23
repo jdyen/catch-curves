@@ -92,7 +92,7 @@ ndataset <- max(survey_data$dataset)
 
 # priors for PPM
 alpha_age <- normal(0, 10)
-beta_age <- normal(0, 10)
+beta_age <- normal(0, 10, truncation = c(-Inf, 0))
 
 # variance priors for random effects
 sigma_system <- normal(0, 1, truncation = c(0, Inf))
@@ -131,8 +131,6 @@ mu <- alpha_age + beta_age * age_expanded # +
   # gamma_year[year_expanded] * age_expanded +
   # gamma_dataset[dataset_expanded]
 
-## WHY CAN'T WE HAVE hist(age_vec) = f(age)? (there was a reason)
-
 # need to add offset and exponentiate linear predictor
 lambda <- exp(log(offset) + mu)
 
@@ -140,7 +138,7 @@ lambda <- exp(log(offset) + mu)
 distribution(response_vec) <- poisson(lambda)
 
 # compile model
-mod <- model(len_par, time_par, k_par, c_par,
+mod <- model(# len_par, time_par, k_par, c_par,
              age_vec,
              sigma_oti,
              alpha_age, beta_age)#,
@@ -159,7 +157,7 @@ init_set <- initials(age_alpha = 6.0, age_beta = 3.0)
 #                      alpha_age = opt_est$par$alpha_age,
 #                      beta_age = opt_est$par$beta_age)
 draws <- mcmc(mod, initial_values = init_set,
-              n_samples = 4000, warmup = 4000)
+              n_samples = 1000, warmup = 1000)
 
 # summarise model outputs
 mod_summary <- summary(draws)
