@@ -122,7 +122,10 @@ n_flow <- ncol(flow_std)
 # we need a system x age vector to flatten everything out
 sys_vec <- rep(system, times = n_age)
 age_vec <- rep(seq_len(n_age), each = length(system))
-sys_age_vec <- rebase_index(factor(paste0(sys_vec, age_vec)))
+year_vec <- rep(year, times = n_age)
+survey_vec <- rep(seq_along(system), times = n_age)
+n_survey <- max(survey_vec)
+sys_age_vec <- n_age * (sys_vec - 1) + age_vec
 n_sys_age <- max(sys_age_vec)
 
 # tricky bit: create a matrix of indices identifying cohorts
@@ -140,50 +143,34 @@ for (i in seq_len(n_system)) {
   current_max <- max(cohort_tmp)
   cohort_mat[which(sys_sub)[order(year_sort)], ] <- cohort_tmp
 }
+cohort_vec <- c(cohort_mat)
 n_cohort <- max(cohort_mat)
 
 # need to set some variance priors for hierarchical coefficients
-sigma_system_alpha <- normal(0, 10, truncation = c(0, Inf))
-sigma_system_beta <- normal(0, 10, truncation = c(0, Inf))
-sigma_system_flow <- normal(0, 10, dim = n_flow, truncation = c(0, Inf))
-sigma_age_flow <- normal(0, 10, dim = n_flow, truncation = c(0, Inf))
-# sigma_age_tmp <- sigma_sys_tmp <- sigma_flow <- zeros(n_system, n_age, n_flow)
-sigma_age_tmp <- sigma_sys_tmp <- sigma_flow <- vector("list", length = n_flow)
-for (j in seq_along(sigma_age_flow)) {
-  sigma_age_tmp[[j]] <- t(do.call(cbind, lapply(seq_len(n_system), function(i) rep(sigma_age_flow[j], n_age))))
-  sigma_sys_tmp[[j]] <- do.call(cbind, lapply(seq_len(n_age), function(i) rep(sigma_system_flow[j], n_system)))
-  sigma_flow[[j]] <- sigma_age_tmp[[j]] + sigma_sys_tmp[[j]]
-}
+sigma_alpha <- normal(0, 10, truncation = c(0, Inf))
+sigma_beta <- normal(0, 10, truncation = c(0, Inf))
 sigma_year <- normal(0, 10, truncation = c(0, Inf))
 sigma_cohort <- normal(0, 10, truncation = c(0, Inf))
 
 # need priors on the regression coefs
-alpha <- normal(0, sigma_system_alpha, dim = n_system)
-beta <- normal(0, sigma_system_beta, dim = n_system, truncation = c(-Inf, 0))
-
-beta <- t(do.call(cbind, lapply(seq_len(n_system), function(i) beta_sub[i] * seq_len(n_age))))
-# flow_effects <- zeros(n_system, n_age, n_flow)
-flow_effects <- vector("list", length = n_flow)
-for (j in seq_along(sigma_age_flow))
-  flow_effects[[j]] <- normal(0, sigma_flow[[j]])
+alpha <- normal(0, sigma_alpha, dim = n_system)
+beta <- normal(0, sigma_beta, dim = n_system, truncation = c(-Inf, 0))
 gamma_year <- normal(0, sigma_year, dim = n_year)
-gamma_cohort_sub <- normal(0, sigma_cohort, dim = n_cohort)
-gamma_cohort <- do.call(cbind, lapply(seq_len(n_age), function(i) gamma_cohort_sub[cohort_mat[, i]]))
+gamma_cohort <- normal(0, sigma_cohort, dim = n_cohort)
+
+# define flow priors (trickier than the others because we have crossed, shared variances)
+sigma_flow_sub <- normal(0, 10, dim = c(n_age, n_flow), truncation = c(0, Inf))
+sigma_flow <- do.call(rbind, lapply(seq_len(n_system), function(i) sigma_flow_sub))
+flow_effects <- normal(0, sigma_flow, dim = c(n_sys_age, n_flow))
 
 # define linear predictor: includes system and age specific flow effects, with random intercepts for year and cohort
-mu <- beta[sys_vec] * age_vec
+mu <- alpha[sys_vec] + beta[sys_vec] * age_vec +
+  gamma_cohort[cohort_vec] + gamma_year[year_vec] +
+  rowSums(flow_effects[sys_age_vec, ] * flow_std[survey_vec, ])
 
-mu <- sweep(beta[system, ], 1, alpha[system], "+") + gamma_cohort
-mu <- sweep(mu, 1, gamma_year[year], "+")
-for (i in seq_along(vars_to_include)) {
-  # flow_tmp <- flow_effects[system, , i]
-  # dim(flow_tmp) <- c(length(system), n_age)
-  mu <- mu + sweep(flow_effects[[j]][system, ], 1, flow_std[, i], "*")
-}
-
-# could flatten and mat multiply??? Would be much faster.
-
+# put back on original scale
 modelled_ages <- exp(mu)
+dim(modelled_ages) <- c(n_survey, n_age)
 
 # calculate modelled sizes from ages
 age_to_length <- t(length_to_age)
@@ -192,37 +179,41 @@ modelled_lengths <- modelled_ages %*% age_to_length
 # flatten the modelled and observed lengths
 length_vec <- c(modelled_lengths)
 response_vec <- c(response_matrix)
-flow_vec <- do.call(c, flow_effects)
-sigma_flow_vec <- do.call(c, sigma_flow)
 
 # set likelihood for modelled sizes
 distribution(response_vec) <- poisson(length_vec)
 
 # set mcmc settings
-nkeep <- 1000
+nkeep <- 25000
 nthin <- ceiling(nkeep / 1000)
 
 # compile and sample from model
-mod <- model(alpha, beta, flow_vec, 
+mod <- model(alpha, beta, flow_effects, 
              length_to_age, modelled_ages,
-             sigma_system_alpha, sigma_system_beta,
-             sigma_year, sigma_flow_vec, sigma_cohort,
+             sigma_alpha, sigma_beta, sigma_flow,
+             sigma_year, sigma_cohort,
              gamma_cohort, gamma_year)
 draws <- mcmc(mod, n_samples = (2 * nkeep), warmup = nkeep, thin = nthin)
 
 # summarise fitted model
 mod_summary <- summary(draws)
+
+# length-age conversions
 a <- mod_summary$quantiles[grep("length_to_age", rownames(mod_summary$quantiles)), "50%"]
 a <- matrix(a, nrow = n_len)
-
 image(a, col = viridis::inferno(256))
 
-
+# modelled ages and lengths
 b <- mod_summary$quantiles[grep("modelled_ages", rownames(mod_summary$quantiles)), "50%"]
-b <- matrix(b, nrow = nrow(mu))
-  
+b <- matrix(b, nrow = nrow(modelled_ages))
 d <- b %*% t(a)
 
-beta_flow <- mod_summary$quantiles[grep("flow_vec", rownames(mod_summary$quantiles)), "50%"]
-beta_flow <- array(beta_flow, dim = c(n_system, n_age, n_flow))
-dimnames(beta_flow)[[3]] <- vars_to_include
+# flow effects
+beta_flow <- mod_summary$quantiles[grep("flow_effects", rownames(mod_summary$quantiles)), "50%"]
+beta_flow <- array(beta_flow, dim = c(n_sys_age, n_flow))
+colnames(beta_flow) <- vars_to_include
+## add system and age identifiers to flow effects
+
+
+
+
