@@ -89,11 +89,15 @@ year <- c(tapply(survey_data$year_id,
                    unique))
 year <- year[!is.na(year)]
 
+# add a quadratic summer effect to the flow predictors
+flow_data$prop_sum_win_sq <- flow_data$prop_sum_lt_win ^ 2
+flow_data$prop_sum_win_sq_ym1 <- flow_data$prop_sum_lt_win_ym1 ^ 2
+
 # compile flow predictors
-## ADD QUADRATIC SUMMER EFFECTS IN
 vars_to_include <- c("rrang_spwn_mld", "rrang_spwn_mld_ym1",
                      "prop_spr_lt_win", "prop_spr_lt_win_ym1",
                      "prop_sum_lt_win", "prop_sum_lt_win_ym1",
+                     "prop_sum_win_sq", "prop_sum_win_sq_ym1",
                      "maxan_mld", "maxan_mld_ym1",
                      "spwntmp_c")
 flow_compiled <- sapply(vars_to_include,
@@ -184,8 +188,8 @@ response_vec <- c(response_matrix)
 distribution(response_vec) <- poisson(length_vec)
 
 # set mcmc settings
-nkeep <- 25000
-nthin <- ceiling(nkeep / 1000)
+nkeep <- 2500
+nthin <- ifelse(nkeep > 1000, floor(nkeep / 1000), 1)
 
 # compile and sample from model
 mod <- model(alpha, beta, flow_effects, 
@@ -211,9 +215,10 @@ d <- b %*% t(a)
 # flow effects
 beta_flow <- mod_summary$quantiles[grep("flow_effects", rownames(mod_summary$quantiles)), "50%"]
 beta_flow <- array(beta_flow, dim = c(n_sys_age, n_flow))
+beta_flow_lower <- mod_summary$quantiles[grep("flow_effects", rownames(mod_summary$quantiles)), "2.5%"]
+beta_flow_lower <- array(beta_flow_lower, dim = c(n_sys_age, n_flow))
+beta_flow_upper <- mod_summary$quantiles[grep("flow_effects", rownames(mod_summary$quantiles)), "97.5%"]
+beta_flow_upper <- array(beta_flow_upper, dim = c(n_sys_age, n_flow))
 colnames(beta_flow) <- vars_to_include
-## add system and age identifiers to flow effects
-
-
-
-
+flow_system <- systems_to_keep[rep(seq_len(n_system), each = n_age)]
+flow_age <- rep(seq_len(n_age), times = n_system)
