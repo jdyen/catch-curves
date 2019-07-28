@@ -34,3 +34,15 @@ rebase_index <- function(x)
 extract_standards <- function(x) {
   c("mean" = mean(x, na.rm = TRUE), "sd" = sd(x, na.rm = TRUE))
 }
+
+# subset a data object from a fitted CCR model
+subset_data <- function(x, idx) {
+  
+  list(response = x$response[idx, ],
+       length_age_matrix = x$length_age_matrix,
+       system = x$system[idx],
+       year = x$year[idx],
+       predictors = x$predictors[idx, ],
+       cohort_mat = x$cohort_mat[idx, ])
+  
+}
