@@ -39,6 +39,7 @@ validate_internal <- function(i, data, priors, mcmc_settings, ...) {
   response <- data[[i]]$data_train$response
   length_age_matrix <- data[[i]]$data_train$length_age_matrix
   predictors <- data[[i]]$data_train$predictors
+  effort <- data[[i]]$data_train$effort
   system <- data[[i]]$data_train$system
   year <- data[[i]]$data_train$year
 
@@ -46,6 +47,7 @@ validate_internal <- function(i, data, priors, mcmc_settings, ...) {
   mod_tmp <- fit_ccr(response = response,
                      length_age_matrix = length_age_matrix,
                      predictors = predictors,
+                     effort = effort,
                      system = system, year = year,
                      priors = priors,
                      mcmc_settings = mcmc_settings)
@@ -105,6 +107,7 @@ extract_folds <- function(i, data, folds) {
                      system = data$system[-folds[[i]]],
                      year = data$year[-folds[[i]]],
                      predictors = data$predictors[-folds[[i]], ],
+                     effort = data$effort[-folds[[i]]],
                      cohort_mat = data$cohort_mat[-folds[[i]], ])
   
   # pull out testing data
@@ -113,6 +116,7 @@ extract_folds <- function(i, data, folds) {
                     system = data$system[folds[[i]]],
                     year = data$year[folds[[i]]],
                     predictors = data$predictors[folds[[i]], ],
+                    effort = data$effort[folds[[i]]],
                     cohort_mat = data$cohort_mat[folds[[i]], ])
   
   # return outputs

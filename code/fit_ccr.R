@@ -1,6 +1,7 @@
 # fit a catch-curve regression model
 fit_ccr <- function(response, length_age_matrix,
-                    predictors, system, year,
+                    predictors, effort,
+                    system, year,
                     priors = list(),
                     mcmc_settings = list()) {
   
@@ -18,8 +19,12 @@ fit_ccr <- function(response, length_age_matrix,
   if (is.null(mcmc_settings$thin))
     mcmc_set$thin <- ifelse(mcmc_set$n_samples > 1000, floor(mcmc_set$n_samples / 1000), 1)
   
+  # are effort data provided?
+  if (missing(effort))
+    effort <- rep(1, nrow(predictors))
+  
   # prepare data from inputs
-  data <- prepare_data(response, length_age_matrix, system, year, predictors)
+  data <- prepare_data(length_age_matrix, system, year, predictors, effort)
   
   # unpack data outputs
   n_len <- data$n_len
@@ -36,6 +41,7 @@ fit_ccr <- function(response, length_age_matrix,
   n_sys_age <- data$n_sys_age
   cohort_vec <- data$cohort_vec
   n_cohort <- data$n_cohort
+  effort_vec <- data$effort_vec
   
   # set priors on length-age conversion
   length_age_prior <- zeros(n_len, n_age) + 0.1
@@ -66,7 +72,8 @@ fit_ccr <- function(response, length_age_matrix,
   # define linear predictor: includes system and age specific predictor effects, with random intercepts for year and cohort
   mu <- alpha[sys_vec] + beta[sys_vec] * age_vec +
     gamma_cohort[cohort_vec] + gamma_year[year_vec] +
-    rowSums(pred_effects[sys_age_vec, ] * predictors[survey_vec, ])
+    rowSums(pred_effects[sys_age_vec, ] * predictors[survey_vec, ]) -
+    log(effort_vec)
   
   # put back on original scale
   modelled_ages <- exp(mu)
@@ -98,6 +105,7 @@ fit_ccr <- function(response, length_age_matrix,
                     system = system,
                     year = year,
                     predictors = predictors,
+                    effort = effort,
                     cohort_mat = data$cohort_mat)
   
   # compile fitted
@@ -115,10 +123,10 @@ fit_ccr <- function(response, length_age_matrix,
 }
 
 # prepare data for a CCR model
-prepare_data <- function(response, length_age_matrix, system, year, predictors) {
+prepare_data <- function(length_age_matrix, system, year, predictors, effort) {
   
   # we need a few indices to keep track of things
-  n_len <- ncol(response)
+  n_len <- nrow(length_age_matrix)
   n_age <- ncol(length_age_matrix)
   
   # how many systems/years are we including?
@@ -134,6 +142,9 @@ prepare_data <- function(response, length_age_matrix, system, year, predictors) 
   n_survey <- max(survey_vec)
   sys_age_vec <- n_age * (sys_vec - 1) + age_vec
   n_sys_age <- max(sys_age_vec)
+  
+  # we also need to flatten out the effort data
+  effort_vec <- rep(effort, times = n_age)
   
   # tricky bit: create a matrix of indices identifying cohorts
   cohort_mat <- matrix(NA, nrow = length(system), ncol = n_age)
@@ -172,7 +183,8 @@ prepare_data <- function(response, length_age_matrix, system, year, predictors) 
        n_sys_age = n_sys_age,
        cohort_vec = cohort_vec,
        n_cohort = n_cohort,
-       cohort_mat = cohort_mat)
+       cohort_mat = cohort_mat,
+       effort_vec = effort_vec)
   
 }
 

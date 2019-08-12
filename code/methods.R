@@ -5,18 +5,23 @@ get_param <- function(samples, regex_par)
   samples[, grep(regex_par, colnames(samples))]
 
 # predict to newdata from a fitted MCMC object 
-predict.ccr_model <- function(obj, newdata = NULL, thin = 1, random = FALSE) {
+predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
+                              year = FALSE, cohort = FALSE) {
   
   # are newdata provided?
   if (is.null(newdata))
     newdata <- obj$data
   
+  # what if effort data are not provided?
+  if (is.null(newdata$effort))
+    newdata$effort <- rep(1, nrow(newdata$predictors))
+  
   # create data inputs from provided data
-  data <- prepare_data(newdata$response,
-                       newdata$length_age_matrix,
+  data <- prepare_data(newdata$length_age_matrix,
                        newdata$system,
                        newdata$year,
-                       newdata$predictors)
+                       newdata$predictors,
+                       newdata$effort)
   
   # extract MCMC samples from fitted model
   samples <- obj$draws
@@ -28,10 +33,11 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, random = FALSE) {
   new_predictors <- newdata$predictors
   new_age_vec <- data$age_vec
   new_survey <- data$survey_vec
+  new_effort <- data$effort_vec
   
   # calculate sys_age combo from system and age
-  n_new_age <- max(new_age_vec)
-  new_sys_age <- n_new_age * (new_sys - 1) + new_age_vec
+  n_age <- ncol(newdata$length_age_matrix)
+  new_sys_age <- n_age * (new_sys - 1) + new_age_vec
   
   # combine the draws and thin if needed
   if (thin > 1)
@@ -39,7 +45,7 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, random = FALSE) {
   
   # how many samples and predictions do we have?
   n_samples <- nrow(samples)
-  n_pred <- nrow(newdata$response)
+  n_pred <- length(newdata$system)
   
   # pull out params we need
   convert <- get_param(samples, "length_to_age")
@@ -78,14 +84,18 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, random = FALSE) {
   # calculate linear predictor
   mu_pred <- alpha_est[, new_sys] +
     sweep(beta_est[, new_sys], 2, new_age_vec, "*") +
-    apply(sweep(pred_array[, new_sys_age, ], c(2, 3), new_predictors[new_survey, ], "*"), c(1, 2), sum)
+    apply(sweep(pred_array[, new_sys_age, ], c(2, 3), new_predictors[new_survey, ], "*"), c(1, 2), sum) -
+    log(new_effort)
 
   # should we add random effects?
-  if (random)
-    mu_pred <- mu_pred + cohort_est[, new_cohort] + year_est[, new_year]
+  if (year)
+    mu_pred <- mu_pred + year_est[, new_year]
+  if (cohort)
+    mu_pred <- mu_pred + cohort_est[, new_cohort] 
     
   # put back onto the observation scale
-  ages_pred <- exp(mu_pred)
+  ages_pred <- mu_pred
+  # ages_pred <- exp(mu_pred)
   
   # reformat predictions
   unique_ages <- unique(new_age_vec)
@@ -96,16 +106,98 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, random = FALSE) {
   }
   
   # convert to length (would be good to vectorise this but lapply options are slower)
-  lengths_pred <- array(NA, dim = c(n_samples, n_pred, n_len))
-  for (i in seq_len(n_samples))
-    lengths_pred[i, , ] <- ages_formatted[i, , ] %*% t(convert_array[i, , ])
+  if (lengths) {
+    pred_out <- array(NA, dim = c(n_samples, n_pred, n_len))
+    for (i in seq_len(n_samples))
+      pred_out[i, , ] <- ages_formatted[i, , ] %*% t(convert_array[i, , ])
+  } else {
+    pred_out <- ages_formatted
+  }
   
   # return all predictions
-  lengths_pred
+  pred_out
+  
+}
+
+# create a function to define a set of predictor combos from some simple settings
+create_newdata <- function(obj, var,
+                           nplot = 100,
+                           system = 1, year = 1,
+                           effort = 1) {
+  
+  # is a model object provided?
+  if (missing(obj))
+    stop("obj must be a ccr_model object", call. = FALSE)
+  
+  # is a model object provided?
+  if (!"ccr_model" %in% class(obj))
+    stop("obj must be a ccr_model object", call. = FALSE)
+  
+  # are one or more variables listed?
+  if (missing(var))
+    stop("var must include a character name of one variable", call. = FALSE)
+
+  # are one or more variables listed?
+  if (length(var) > 1)
+    stop("var must include one variable only", call. = FALSE)
+  
+  # how many observations do we need to predict?
+  nsystem <- length(unique(system))
+  nyear <- length(unique(year))
+
+  # what range do the variables have?
+  var_range <- range(obj$data$predictors[, var])
+  
+  # make up newdata objects for each variable
+  sys_vec <- rep(rep(system, each = nplot), each = nyear)
+  year_vec <- rep(rep(year, each = nplot), times = nsystem)
+  predictors <- matrix(0, nrow = length(year_vec), ncol = ncol(obj$data$predictors))
+  colnames(predictors) <- colnames(obj$data$predictors)
+  predictors[, var] <- rep(seq(var_range[1], var_range[2], length = nplot), times = nyear * nsystem)
+  effort <- rep(effort, times = nrow(predictors))
+  
+  # what if we are changing a variable that's also included quadratically?
+  if (length(grep("prop_sum", var))) {
+    predictors[, "prop_sum_win_sq"] <- rep(seq(min(obj$data$predictors[, "prop_sum_win_sq"]),
+                                               max(obj$data$predictors[, "prop_sum_win_sq"]),
+                                               length = nplot),
+                                           times = nyear * nsystem)
+    predictors[, "prop_sum_lt_win"] <- rep(seq(min(obj$data$predictors[, "prop_sum_lt_win"]),
+                                               max(obj$data$predictors[, "prop_sum_lt_win"]),
+                                               length = nplot),
+                                           times = nyear * nsystem)
+  }
+
+  # return the newdata object
+  list(length_age_matrix = obj$data$length_age_matrix,
+       system = sys_vec,
+       year = year_vec,
+       predictors = predictors,
+       effort = effort)
   
 }
 
 # calculate fit metrics for a fitted CCR model
 calculate_metrics <- function(obj) {
-  NULL
+
+  # pull out observed data
+  observed <- obj$data$response
+  
+  # calculate fitted values
+  fitted <- predict(obj, random = TRUE)
+
+  # pull out a few different r2 values
+  dev_null <- NULL
+  dev_fitted <- NULL
+  
+  
+}
+
+# calculate deviance from a fitted model
+calc_deviance <- function(x, y) {
+  
+  loglik <- NULL
+  
+  -2 * loglik
+  
 }
