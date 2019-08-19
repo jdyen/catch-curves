@@ -46,7 +46,7 @@ fit_ccr <- function(response, length_age_matrix,
   
   # set priors on length-age conversion
   length_age_prior <- zeros(n_len, n_age) + 0.001
-  length_age_prior[row(length_age_prior) == col(length_age_prior)] <- 100
+  length_age_prior[row(length_age_prior) == col(length_age_prior)] <- 10
   length_to_age <- dirichlet(alpha = length_age_prior)
   
   # set likelihood on length-age conversion data
@@ -81,9 +81,9 @@ fit_ccr <- function(response, length_age_matrix,
   dim(modelled_ages) <- c(n_survey, n_age)
   
   # calculate modelled sizes from ages
-  # age_to_length <- t(length_to_age)
-  modelled_lengths <- t(length_to_age %*% t(modelled_ages))
-  # modelled_lengths <- modelled_ages %*% age_to_length
+  age_to_length <- t(length_to_age)
+  # modelled_lengths <- t(length_to_age %*% t(modelled_ages))
+  modelled_lengths <- modelled_ages %*% age_to_length
   
   # flatten the modelled and observed lengths
   length_vec <- c(modelled_lengths)
