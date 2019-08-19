@@ -6,7 +6,8 @@ fit_ccr <- function(response, length_age_matrix,
                     mcmc_settings = list()) {
   
   # unpack priors
-  prior_set <- list(sigma = 10)
+  prior_set <- list(sigma = 2,
+                    sigma_random = 1)
   prior_set[names(priors)] <- priors
   
   # unpack mcmc settings
@@ -44,8 +45,8 @@ fit_ccr <- function(response, length_age_matrix,
   effort_vec <- data$effort_vec
   
   # set priors on length-age conversion
-  length_age_prior <- zeros(n_len, n_age) + 0.1
-  length_age_prior[row(length_age_prior) == col(length_age_prior)] <- 1
+  length_age_prior <- zeros(n_len, n_age) + 0.001
+  length_age_prior[row(length_age_prior) == col(length_age_prior)] <- 100
   length_to_age <- dirichlet(alpha = length_age_prior)
   
   # set likelihood on length-age conversion data
@@ -55,8 +56,8 @@ fit_ccr <- function(response, length_age_matrix,
   # need to set some variance priors for hierarchical coefficients
   sigma_alpha <- normal(0, prior_set$sigma, truncation = c(0, Inf))
   sigma_beta <- normal(0, prior_set$sigma, truncation = c(0, Inf))
-  sigma_year <- normal(0, prior_set$sigma, truncation = c(0, Inf))
-  sigma_cohort <- normal(0, prior_set$sigma, truncation = c(0, Inf))
+  sigma_year <- normal(0, prior_set$sigma_random, truncation = c(0, Inf))
+  sigma_cohort <- normal(0, prior_set$sigma_random, truncation = c(0, Inf))
   
   # need priors on the regression coefs
   alpha <- normal(0, sigma_alpha, dim = n_system)
@@ -72,7 +73,7 @@ fit_ccr <- function(response, length_age_matrix,
   # define linear predictor: includes system and age specific predictor effects, with random intercepts for year and cohort
   mu <- alpha[sys_vec] + beta[sys_vec] * age_vec +
     gamma_cohort[cohort_vec] + gamma_year[year_vec] +
-    rowSums(pred_effects[sys_age_vec, ] * predictors[survey_vec, ]) -
+    rowSums(pred_effects[sys_age_vec, ] * predictors[survey_vec, ]) +
     log(effort_vec)
   
   # put back on original scale
@@ -80,8 +81,9 @@ fit_ccr <- function(response, length_age_matrix,
   dim(modelled_ages) <- c(n_survey, n_age)
   
   # calculate modelled sizes from ages
-  age_to_length <- t(length_to_age)
-  modelled_lengths <- modelled_ages %*% age_to_length
+  # age_to_length <- t(length_to_age)
+  modelled_lengths <- t(length_to_age %*% t(modelled_ages))
+  # modelled_lengths <- modelled_ages %*% age_to_length
   
   # flatten the modelled and observed lengths
   length_vec <- c(modelled_lengths)

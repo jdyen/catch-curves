@@ -26,6 +26,19 @@ inverse_growth <- function(x, length_inf, time_zero, k_param, c_param) {
   
 }
 
+# function from Todd & Koehn 2008 to estimate length from age
+length_from_age <- function(x, length_inf, time_zero, k_param, c_param) {
+  
+  par1 <- length_inf
+  par2 <- par1 - time_zero
+  ratio_param <- 1 - (time_zero / length_inf)
+  exp_param <- exp(k_param * x)
+  par3 <- exp_param + (1 - exp_param) * c_param * ratio_param
+  
+  par1 - (par2 / par3)
+  
+}
+
 # rebase a vector intended as an index to start at 1 and count up with no gaps
 rebase_index <- function(x)
   as.integer(as.factor(x))

@@ -11,9 +11,6 @@ source("code/fit_ccr.R")
 source("code/methods.R")
 source("code/validate_ccr.R")
 
-## RELOAD DATA -- IS OVENS VBA DATE FORMATTED CORRECTLY?
-## SOME YEARS MISSING IN MID-OVENS SURVEYS?? CHECK LATEST FILES
-
 # load compiled survey data
 alldat <- readRDS("data/data-loaded-Aug19.rds")
 
@@ -63,7 +60,8 @@ survey_data <- survey_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 # bin otolith data by age and size: offset by -0.4 (0-0.6 = YOY, 0.6-1.6 = 1YO, etc.)
 oti_data$age_class <- cut(oti_data$AGE, breaks = c(-0.4:ceiling(max(oti_data$AGE, na.rm = TRUE))),
                           labels = FALSE)
-size_breaks <- c(0, 150, 276, 469, 544, 610, 667, 718, 760, max(survey_data$length_mm, na.rm = TRUE))
+size_breaks <- c(10 * length_from_age(-0.4:7.5, length_inf = 150, time_zero = 6, k_param = 0.0011, c_param = -103),
+                 max(survey_data$length_mm, na.rm = TRUE))
 oti_data$len_class <- cut(oti_data$T_Length..mm., breaks = size_breaks, labels = FALSE)
 length_age_matrix <- classify(oti_data$len_class, oti_data$age_class)
 
@@ -148,14 +146,14 @@ for (i in seq_along(var_sets)) {
   
   # fit model
   mod[[i]] <- fit_ccr(response = response_matrix,
-                 length_age_matrix = length_age_matrix,
-                 predictors = flow_std,
-                 effort = effort,
-                 system = system, year = year,
-                 mcmc_settings = list(n_samples = 10000, warmup = 5000))
+                      length_age_matrix = length_age_matrix,
+                      predictors = flow_std,
+                      effort = effort,
+                      system = system, year = year,
+                      mcmc_settings = list(n_samples = 20000, warmup = 10000))
   
   # validate model
-  mod_cv[[i]] <- validate(mod[[i]], folds = 10, year = TRUE, cohort = TRUE)
+ mod_cv[[i]] <- validate(mod[[i]], folds = 10, year = TRUE, cohort = TRUE)
   
 }
 

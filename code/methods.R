@@ -6,7 +6,8 @@ get_param <- function(samples, regex_par)
 
 # predict to newdata from a fitted MCMC object 
 predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
-                              year = FALSE, cohort = FALSE) {
+                              year = FALSE, cohort = FALSE,
+                              effort = NULL) {
   
   # are newdata provided?
   if (is.null(newdata))
@@ -22,6 +23,13 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
                        newdata$year,
                        newdata$predictors,
                        newdata$effort)
+  
+  # do we want to standardise efforts?
+  if (!is.null(effort)) {
+    if (length(effort) == 1)
+      effort <- rep(effort, length(data$sys_vec))
+    data$effort_vec <- effort
+  }
   
   # extract MCMC samples from fitted model
   samples <- obj$draws
@@ -84,7 +92,7 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
   # calculate linear predictor
   mu_pred <- alpha_est[, new_sys] +
     sweep(beta_est[, new_sys], 2, new_age_vec, "*") +
-    apply(sweep(pred_array[, new_sys_age, ], c(2, 3), new_predictors[new_survey, ], "*"), c(1, 2), sum) -
+    apply(sweep(pred_array[, new_sys_age, ], c(2, 3), new_predictors[new_survey, ], "*"), c(1, 2), sum) +
     log(new_effort)
 
   # should we add random effects?
