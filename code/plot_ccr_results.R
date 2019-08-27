@@ -1,6 +1,7 @@
 setwd("~/Dropbox/research/catch-curves/")
 
 ## CONSIDER RE-RUNNING WITH TOTAL ABUNDANCE-BY-YEAR AS A PREDICTOR. CIRCULAR? USE CV TO TEST?
+mod <- readRDS("outputs/fitted/mod-long-mcmc.rds")
 
 # load some helper functions
 source("code/methods.R")
@@ -39,7 +40,10 @@ for (i in seq_along(system_names)) {
 }
 
 # pull out a single model to plot
-mod <- fitted_mods[[2]]
+mod <- fitted_mods[[3]]
+
+# plot some traces to diagnose poor mixing and convergence
+bayesplot::mcmc_trace(mod$draws, regex_pars = "cohort\\[143,")
 
 # which systems do we want to plot?
 sys_to_plot <- c(1:5)
@@ -52,7 +56,8 @@ var_names <- c("rrang_spwn_mld" = "Rolling range of spawning flows (ML/day)",
                "prop_sum_lt_win_ym1" = "Previous year's summer flow as a proportion of long-term median flow",
                "maxan_mld" = "Maximum annual daily flow (ML/day)",
                "maxan_mld_ym1" = "Maximum annual daily flow in previous year (ML/day)",
-               "spwntmp_c" = "Temperature during spawning period (degrees C)")
+               "spwntmp_c" = "Temperature during spawning period (degrees C)",
+               "pop_abund" = "Total catch")
 var_names <- var_names[vars_to_plot]
 
 # predict to new data and plot
@@ -123,7 +128,8 @@ var_names2 <- c("rrang_spwn_mld" = "Variability in spawning flows",
                 "prop_sum_win_sq" = "Summer flow quadratic effect",
                 "maxan_mld" = "Maximum annual daily flow",
                 "maxan_mld_ym1" = "Antecedent maximum annual daily flow",
-                "spwntmp_c" = "Temperature during spawning months")
+                "spwntmp_c" = "Temperature during spawning months",
+                "pop_abund" = "Total catch")
 
 pr_pos <- function(x) 
   sum(x > 0) / length(x)
@@ -173,7 +179,7 @@ par(mar = c(5.1, 5.1, 2.1, 1.1), mfrow = c(3, 3))
 
 vars_to_test <- colnames(mod$data$predictors)
 var_names2 <- var_names2[vars_to_test]
-samples <- mod$draws
+samples <- do.call(rbind, mod$draws)
 beta_flow <- get_param(samples, "pred_effects")
 age_set <- 1
 system_set <- 1:5
@@ -315,7 +321,7 @@ test_data <-  list(length_age_matrix = mod$data$length_age_matrix,
                    effort = effort_seq,
                    cohort_mat = new_cohorts)
 max_age <- 3
-fitted_all <- predict(mod, test_data, lengths = FALSE, year = TRUE, cohort = TRUE)
+fitted_all <- predict(mod, test_data, lengths = FALSE, year = TRUE, cohort = TRUE, thin = 20)
 fitted_all <- exp(apply(fitted_all, c(2, 3), median))
 fitted_all <- fitted_all[, seq_len(max_age + 1)]
 sys_sub <- test_data$system
@@ -348,7 +354,7 @@ for (i in seq_along(unique_systems)) {
   # plot observed values
   plot_values <- matrix(NA, nrow = max(year_sub), ncol = ncol(fitted))
   plot_values[match(year_sub[sys_sub == i], seq_len(max(year_sub))), ] <- observed
-  abs_range <- max(abs(range(observed, na.rm = TRUE)))
+  abs_range <- max(abs(c(range(observed, na.rm = TRUE), range(fitted, na.rm = TRUE))))
   image_breaks <- c(seq(0, abs_range, length = 100), abs_range + 0.0001)
   col_pal_image <- colorRampPalette(c("#f7f7f7",
                                       "#2166ac", "#053061"))(99)
@@ -367,7 +373,6 @@ for (i in seq_along(unique_systems)) {
   # plot fitted values
   plot_values <- matrix(NA, nrow = max(year_sub), ncol = ncol(fitted))
   plot_values[match(year_sub[sys_sub == i], seq_len(max(year_sub))), ] <- fitted
-  abs_range <- max(abs(range(fitted, na.rm = TRUE)))
   image_breaks <- c(seq(0, abs_range, length = 100), abs_range + 0.0001)
   col_pal_image <- colorRampPalette(c("#f7f7f7",
                                       "#2166ac", "#053061"))(99)

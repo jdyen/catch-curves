@@ -2,7 +2,7 @@
 
 # which files do we want?
 file_list <- c("VEFMAP_ALL_FISH_190731.csv",
-               "SNAGS_FISH_20190130.csv",
+               "SNAGS_FISH_20190827.csv",
                "OVENS_NFRC_2019.csv",
                "OVENS_2018.csv",
                "OVENS_MID_2012_2018.csv",

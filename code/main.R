@@ -66,10 +66,10 @@ oti_data$len_class <- cut(oti_data$T_Length..mm., breaks = size_breaks, labels =
 length_age_matrix <- classify(oti_data$len_class, oti_data$age_class)
 
 # how many length classes do we need to keep to give all 0-4 year olds?
-n_len <- 4 #max(which(length_age_matrix[, 5] > 0))
+n_len <- max(which(length_age_matrix[, 5] > 0))
 
 # how many age classes do we need to keep to give all 0:n_len length individuals?
-n_age <- 5 #max(which(length_age_matrix[n_len, ] > 0))
+n_age <- max(which(length_age_matrix[n_len, ] > 0))
 
 # let's just keep those from the age_length_matrix
 length_age_matrix <- length_age_matrix[seq_len(n_len), seq_len(n_age)]
@@ -79,7 +79,7 @@ response_matrix <- do.call(
   rbind, tapply(survey_data$length_mm,
                 list(survey_data$system, survey_data$year),
                 hist_fn, breaks = size_breaks))
-pop_abund <- apply(response_matrix, 1, sum)
+pop_abund <- apply(response_matrix[, 5:ncol(response_matrix)], 1, sum)
 
 # filter length class survey data to the length classes we care about (1:n_len)
 response_matrix <- response_matrix[, seq_len(n_len)]
@@ -123,7 +123,7 @@ var_sets <- list(c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "prop
                  c("maxan_mld", "spwntmp_c"))
 mod <- list()
 mod_cv <- list()
-for (i in seq_along(var_sets)) {
+for (i in 2:3) { #seq_along(var_sets)) {
   
   vars_to_include <- var_sets[[i]]
   flow_compiled <- sapply(vars_to_include,
@@ -147,7 +147,7 @@ for (i in seq_along(var_sets)) {
   flow_scales <- apply(flow_compiled, 2, extract_standards)
   
   # add total abundance as a predictor
-  flow_std <- cbind(flow_std, scale(pop_abund))
+  flow_std <- cbind(flow_std, "pop_abund" = c(scale(pop_abund)))
   flow_scales <- cbind(flow_scales, "pop_abund" = c(mean(pop_abund), sd(pop_abund)))
   
   # fit model
@@ -156,10 +156,10 @@ for (i in seq_along(var_sets)) {
                       predictors = flow_std,
                       effort = effort,
                       system = system, year = year,
-                      mcmc_settings = list(n_samples = 20000, warmup = 10000))
+                      mcmc_settings = list(n_samples = 10000, warmup = 10000, thin = 1))
   
   # validate model
- mod_cv[[i]] <- validate(mod[[i]], folds = 10, year = TRUE, cohort = TRUE)
+ # mod_cv[[i]] <- validate(mod[[i]], folds = 10, year = TRUE, cohort = TRUE)
   
 }
 

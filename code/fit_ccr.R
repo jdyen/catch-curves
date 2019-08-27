@@ -6,7 +6,7 @@ fit_ccr <- function(response, length_age_matrix,
                     mcmc_settings = list()) {
   
   # unpack priors
-  prior_set <- list(sigma = 2,
+  prior_set <- list(sigma = 10,
                     sigma_random = 1)
   prior_set[names(priors)] <- priors
   
@@ -50,8 +50,8 @@ fit_ccr <- function(response, length_age_matrix,
   length_to_age <- dirichlet(alpha = length_age_prior)
   
   # set likelihood on length-age conversion data
-  distribution(length_age_matrix) <-
-    multinomial(size = apply(length_age_matrix, 1, sum), prob = length_to_age)
+  # distribution(length_age_matrix) <-
+  #   multinomial(size = apply(length_age_matrix, 1, sum), prob = length_to_age)
   
   # need to set some variance priors for hierarchical coefficients
   sigma_alpha <- normal(0, prior_set$sigma, truncation = c(0, Inf))
@@ -112,7 +112,7 @@ fit_ccr <- function(response, length_age_matrix,
   
   # compile fitted
   out <- list(data = data_list,
-              draws = do.call(rbind, draws),
+              draws = draws,
               priors = priors,
               mcmc_settings = mcmc_settings)
   

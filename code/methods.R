@@ -32,7 +32,7 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
   }
   
   # extract MCMC samples from fitted model
-  samples <- obj$draws
+  samples <- do.call(rbind, obj$draws)
   
   # unpack newdata
   new_sys <- data$sys_vec
