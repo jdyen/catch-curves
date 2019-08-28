@@ -57,6 +57,10 @@ survey_data$year_id <- rebase_index(survey_data$year)
 flow_data <- flow_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 survey_data <- survey_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 
+
+## TRY INCLUDING ALL AGE/LENGTH CLASSES: seems like we're dropping off larger fish, which
+##   might give overly steep slopes. Or we could truncate the modelled ages?
+
 # bin otolith data by age and size: offset by -0.4 (0-0.6 = YOY, 0.6-1.6 = 1YO, etc.)
 oti_data$age_class <- cut(oti_data$AGE, breaks = c(-0.4:ceiling(max(oti_data$AGE, na.rm = TRUE))),
                           labels = FALSE)
@@ -123,7 +127,7 @@ var_sets <- list(c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "prop
                  c("maxan_mld", "spwntmp_c"))
 mod <- list()
 mod_cv <- list()
-for (i in 2:3) { #seq_along(var_sets)) {
+for (i in 2) { #seq_along(var_sets)) {
   
   vars_to_include <- var_sets[[i]]
   flow_compiled <- sapply(vars_to_include,
@@ -156,7 +160,7 @@ for (i in 2:3) { #seq_along(var_sets)) {
                       predictors = flow_std,
                       effort = effort,
                       system = system, year = year,
-                      mcmc_settings = list(n_samples = 10000, warmup = 10000, thin = 1))
+                      mcmc_settings = list(n_samples = 2000, warmup = 2000, thin = 1))
   
   # validate model
  # mod_cv[[i]] <- validate(mod[[i]], folds = 10, year = TRUE, cohort = TRUE)

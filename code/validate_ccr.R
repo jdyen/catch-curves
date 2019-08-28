@@ -20,7 +20,7 @@ validate.ccr_model <- function(obj, folds = 10, ...) {
   data_folds <- lapply(seq_along(folds), extract_folds, obj$data, folds)
 
   # fit a model for each fold
-  mod_cv <- lapply(seq_along(folds), validate_internal, data_folds, priors, mcmc_settings, ...)
+  mod_cv <- future.apply::future_lapply(seq_along(folds), validate_internal, data_folds, priors, mcmc_settings, ...)
 
   # unpack list
   out <- list()

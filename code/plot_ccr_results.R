@@ -1,5 +1,8 @@
 setwd("~/Dropbox/research/catch-curves/")
 
+
+# redo results plots in order of stream size Murray, Ovens, Goulburn, King, Broken
+
 ## CONSIDER RE-RUNNING WITH TOTAL ABUNDANCE-BY-YEAR AS A PREDICTOR. CIRCULAR? USE CV TO TEST?
 mod <- readRDS("outputs/fitted/mod-long-mcmc.rds")
 
