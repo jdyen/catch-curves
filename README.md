@@ -1,7 +1,9 @@
-# fish-trends
-Code to examine trends in native fish abundance and biomass in Victorian rivers. Fitted models display trends in abundance and biomass and identify the strength of associations between trends and metrics of river flow.
+# Generalised catch curve regression
+This repository contains code to support Tonkin et al. (in prep.) TITLE.
 
-Copyright &copy; 2018, Jian Yen
+This work examines trends in native fish recruitment in five Victorian rivers. Fitted models were based on catch curve regressions, extended to use length data with unknown ages and to include several metrics of streamflow. 
+
+Copyright &copy; 2019, Jian Yen
 
 *****
 
@@ -20,14 +22,8 @@ limitations under the License.
 
 *****
 
-## Overview
-Non-linear, variable-selection models to identify trends in native fish abundance and biomass and to identify associations with flow variables.
 
 Maintainer: Jian Yen (jdl.yen@gmail.com)
 
-Updated: 16 May 2018
-
-## Usage
-TO ADD
-
+Updated: 12 November 2019
 
