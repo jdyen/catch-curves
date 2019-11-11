@@ -1,14 +1,20 @@
 # fit a catch-curve regression model
-fit_ccr <- function(response, length_age_matrix,
-                    predictors, effort,
-                    system, year,
-                    include = list(),
-                    priors = list(),
-                    mcmc_settings = list(),
-                    optim_start = FALSE) {
+fit_ccr <- function(
+  response,
+  length_age_matrix,
+  predictors,
+  effort,
+  system,
+  year,
+  sys_year_flow,
+  include = list(),
+  priors = list(),
+  mcmc_settings = list(),
+  optim_start = FALSE
+) {
   
   # unpack priors
-  prior_set <- list(sigma = 2 * sd(log(response + 1)),
+  prior_set <- list(sigma = sd(log(response + 1)),
                     sigma_random = 0.5 * sd(log(response + 1)))
   prior_set[names(priors)] <- priors
   
@@ -19,9 +25,9 @@ fit_ccr <- function(response, length_age_matrix,
   mcmc_set[names(mcmc_settings)] <- mcmc_settings
 
   # unpack inclusions
-  inclusions <- list(year = TRUE,
-                     cohort = TRUE,
-                     sys_flow = TRUE)
+  inclusions <- list(survey = TRUE,
+                     sys_flow = TRUE,
+                     predictors = TRUE)
   inclusions[names(include)] <- include
     
   # ideally want to keep stored samples down
@@ -33,28 +39,24 @@ fit_ccr <- function(response, length_age_matrix,
     effort <- rep(1, nrow(predictors))
   
   # prepare data from inputs
-  data <- prepare_data(length_age_matrix, system, year, predictors, effort)
+  data <- prepare_data(length_age_matrix, system, predictors, effort)
   
   # unpack data outputs
   n_len <- data$n_len
   n_age <- data$n_age
   n_system <- data$n_system
-  n_year <- data$n_year
+  n_survey <- data$n_survey
   n_predictors <- data$n_predictors
+  n_sys_age <- data$n_sys_age
   sys_vec <- data$sys_vec
   age_vec <- data$age_vec
-  year_vec <- data$year_vec
   survey_vec <- data$survey_vec
-  n_survey <- data$n_survey
   sys_age_vec <- data$sys_age_vec
-  n_sys_age <- data$n_sys_age
-  cohort_vec <- data$cohort_vec
-  n_cohort <- data$n_cohort
   effort_vec <- data$effort_vec
   
   # set priors on length-age conversion
   length_age_prior <- zeros(n_len, n_age) + 0.001
-  length_age_prior[row(length_age_prior) == col(length_age_prior)] <- 10
+  length_age_prior[row(length_age_prior) == col(length_age_prior)] <- 1000
   length_to_age <- dirichlet(alpha = length_age_prior)
 
   # set likelihood on length-age conversion data
@@ -64,19 +66,14 @@ fit_ccr <- function(response, length_age_matrix,
   # need to set some variance priors for hierarchical coefficients
   sigma_alpha <- normal(0, prior_set$sigma, truncation = c(0, Inf))
   sigma_beta <- normal(0, prior_set$sigma, truncation = c(0, Inf))
-  sigma_year <- normal(0, prior_set$sigma_random, truncation = c(0, Inf))
-  sigma_cohort <- normal(0, prior_set$sigma_random, truncation = c(0, Inf))
+  sigma_survey <- normal(0, prior_set$sigma_random, truncation = c(0, Inf))
   
   # need priors on the regression coefs
   alpha <- normal(0, sigma_alpha, dim = n_system)
   beta <- normal(0, sigma_beta, dim = n_system, truncation = c(-Inf, 0))
-  gamma_year <- normal(0, sigma_year, dim = n_year)
-  gamma_cohort <- normal(0, sigma_cohort, dim = n_cohort)
+  gamma_survey <- normal(0, sigma_survey, dim = n_survey)
   
   # define flow priors (trickier than the others because we have crossed, shared variances)
-  # sigma_pred_sub <- normal(0, prior_set$sigma, dim = c(n_age, n_predictors), truncation = c(0, Inf))
-  # sigma_pred <- do.call(rbind, lapply(seq_len(n_system), function(i) sigma_pred_sub))
-  # pred_effects <- normal(0, sigma_pred, dim = c(n_sys_age, n_predictors))
   if (inclusions$sys_flow) {
     sigma_pred_sub <- normal(0, prior_set$sigma, dim = c(1, n_predictors), truncation = c(0, Inf))
     sigma_pred <- do.call(rbind, lapply(seq_len(n_system), function(i) sigma_pred_sub))
@@ -88,21 +85,23 @@ fit_ccr <- function(response, length_age_matrix,
   
   # define linear predictor: includes system and age specific predictor effects, with random intercepts for year and cohort
   mu <- alpha[sys_vec] + beta[sys_vec] * age_vec + log(effort_vec)
-  
-  # include cohorts?
-  if (inclusions$cohort)
-    mu <- mu + gamma_cohort[cohort_vec]
 
-  # include years?    
-  if (inclusions$year)
-    mu <- mu + gamma_year[year_vec]
+  # include survey ids as random?    
+  if (inclusions$survey)
+    mu <- mu + gamma_survey[survey_vec]
+  
+  # pull out rows based on modified sys_year to account for staggered flows by age
+  sys_year_observed <- paste(rep(system, n_age), c(sapply(seq_len(n_age), function(x) year - x + 1)), sep = "_")
+  expanded_rows <- match(sys_year_observed, paste(sys_year_flow$system, sys_year_flow$year, sep = "_"))
+  predictors_expanded <- predictors[expanded_rows, ]
   
   # include flow effects by system?
-  # rowSums(pred_effects[sys_age_vec, ] * predictors[survey_vec, ])
-  if (inclusions$sys_flow) {
-    mu <- mu + rowSums(pred_effects[sys_vec, ] * predictors[survey_vec, ])
-  } else {
-    mu <- mu + predictors[survey_vec, ] %*% pred_effects
+  if (inclusions$predictors) {
+    if (inclusions$sys_flow) {
+      mu <- mu + rowSums(pred_effects[sys_vec, ] * predictors_expanded)
+    } else {
+      mu <- mu + predictors_expanded %*% pred_effects
+    }
   }
   
   # put back on original scale
@@ -118,48 +117,41 @@ fit_ccr <- function(response, length_age_matrix,
   response_vec <- c(response)
   
   # set likelihood for modelled sizes
-  distribution(response_vec) <- poisson(length_vec)
+  subset <- rep(seq_len(n_age), each = n_survey) > 0
+  distribution(response_vec[subset]) <- poisson(length_vec[subset])
   
   # compile model
-  full_model <- inclusions$cohort & inclusions$year
-  if (!full_model)
-    empty_model <- !(inclusions$cohort | inclusions$year)
-  if (full_model) {
-    mod <- model(alpha, beta, pred_effects, 
+  if (inclusions$survey) {
+    mod <- model(alpha,
+                 beta,
+                 pred_effects, 
                  length_to_age,
-                 gamma_cohort, gamma_year)
+                 gamma_survey)
   } else {
-    if (!empty_model) {
-      if (inclusions$cohort) {
-        mod <- model(alpha, beta, pred_effects, 
-                     length_to_age, gamma_cohort)
-      } else {
-        mod <- model(alpha, beta, pred_effects, 
-                     length_to_age, gamma_year)
-      }
-    } else {
-      mod <- model(alpha, beta, pred_effects,
-                   length_to_age)
-    }
+    mod <- model(alpha,
+                 beta,
+                 pred_effects,
+                 length_to_age)
   }
   
   # set initial values
   if (optim_start) {
     inits <- list()
     for (i in seq_len(mcmc_set$chains)) {
-      opt_start <- opt(mod, max_iterations = 1000, tolerance = 1e-4)
+      opt_start <- opt(mod, max_iterations = 1000, tolerance = 1e-4,
+                       initial_values = initials(alpha = rnorm(length(alpha)),
+                                                 beta = rep(-1, length(beta))))
       inits[[i]] <- initials(alpha = opt_start$par$alpha,
                              beta = opt_start$par$beta,
                              pred_effects = opt_start$par$pred_effects)
     }
   } else {
-    inits <- lapply(seq_len(mcmc_set$chains), function(i) initials(alpha = rnorm(length(alpha))))
+    inits <- lapply(seq_len(mcmc_set$chains), function(i) initials(alpha = rep(-5, length(alpha))))
   }
   
   # sample from model
   draws <- mcmc(mod,
-                # sampler = hmc(Lmin = 10, Lmax = 100, epsilon = 0.1),
-                sampler = rwmh(),
+                sampler = hmc(),
                 n_samples = mcmc_set$n_samples,
                 warmup = mcmc_set$warmup,
                 thin = mcmc_set$thin,
@@ -171,9 +163,8 @@ fit_ccr <- function(response, length_age_matrix,
                     length_age_matrix = length_age_matrix,
                     system = system,
                     year = year,
-                    predictors = predictors,
-                    effort = effort,
-                    cohort_mat = data$cohort_mat)
+                    predictors = predictors_expanded,
+                    effort = effort)
   
   # compile fitted
   out <- list(data = data_list,
@@ -191,7 +182,7 @@ fit_ccr <- function(response, length_age_matrix,
 }
 
 # prepare data for a CCR model
-prepare_data <- function(length_age_matrix, system, year, predictors, effort) {
+prepare_data <- function(length_age_matrix, system, predictors, effort) {
   
   # we need a few indices to keep track of things
   n_len <- nrow(length_age_matrix)
@@ -199,13 +190,11 @@ prepare_data <- function(length_age_matrix, system, year, predictors, effort) {
   
   # how many systems/years are we including?
   n_system <- max(system)
-  n_year <- max(year)
   n_predictors <- ncol(predictors)
   
   # we need a system x age vector to flatten everything out
   sys_vec <- rep(system, times = n_age)
   age_vec <- rep(seq_len(n_age), each = length(system))
-  year_vec <- rep(year, times = n_age)
   survey_vec <- rep(seq_along(system), times = n_age)
   n_survey <- max(survey_vec)
   sys_age_vec <- n_age * (sys_vec - 1) + age_vec
@@ -214,44 +203,17 @@ prepare_data <- function(length_age_matrix, system, year, predictors, effort) {
   # we also need to flatten out the effort data
   effort_vec <- rep(effort, times = n_age)
   
-  # tricky bit: create a matrix of indices identifying cohorts
-  cohort_mat <- matrix(NA, nrow = length(system), ncol = n_age)
-  current_max <- 0
-  for (i in seq_len(n_system)) {
-    if (any(system == i)) {
-      sys_sub <- system == i
-      year_sub <- year[sys_sub]
-      idx <- order(year_sub)
-      year_sort <- year_sub[idx]
-      cohort_tmp <- matrix(NA, nrow = sum(sys_sub), ncol = n_age)
-      cohort_tmp[idx[1], ] <- rev(seq_len(n_age))
-      year_diffs <- diff(year_sort)
-      for (j in seq_len(sum(sys_sub))[-1])
-        cohort_tmp[idx[j], ] <- cohort_tmp[idx[j - 1], ] + year_diffs[j - 1]
-      cohort_tmp <- cohort_tmp + current_max
-      current_max <- max(cohort_tmp)
-      cohort_mat[which(sys_sub)[order(year_sort)], ] <- cohort_tmp
-    }
-  }
-  n_cohort <- max(cohort_mat, na.rm = TRUE)
-  cohort_vec <- c(cohort_mat)
-  
   # compile into a clean object
   list(n_len = n_len,
        n_age = n_age,
        n_system = n_system,
-       n_year = n_year,
        n_predictors = n_predictors,
        sys_vec = sys_vec,
        age_vec = age_vec,
-       year_vec = year_vec,
        survey_vec = survey_vec,
        n_survey = n_survey,
        sys_age_vec = sys_age_vec,
        n_sys_age = n_sys_age,
-       cohort_vec = cohort_vec,
-       n_cohort = n_cohort,
-       cohort_mat = cohort_mat,
        effort_vec = effort_vec)
   
 }

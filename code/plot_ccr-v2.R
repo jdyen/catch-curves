@@ -1,4 +1,14 @@
-## BY END OF OCT
+# set working directory
+setwd("/homevol/jdyen/ccr-models/")
+
+# load some helper functions
+source("code/helpers.R")
+source("code/fit_ccr.R")
+source("code/methods.R")
+source("code/validate_ccr.R")
+
+# load compiled survey data
+mod <- readRDS("outputs/fitted/mod_test_20190928_1636.rds")
 
 # capitalise system names
 systems_to_keep <- c("broken", "goulburn", "king", "murray", "ovens")
@@ -10,7 +20,7 @@ for (i in seq_along(system_names)) {
 }
 
 # combine all chains into one matrix
-samples <- do.call(rbind, mod$draws)
+samples <- do.call(rbind, lapply(mod, function(x) do.call(rbind, x$draws)))
 
 # plot proportion of recruits
 range_expand <- function(x) min(x):max(x)
@@ -59,7 +69,10 @@ for (i in seq_along(unique(sys_ids))) {
   effort_seq[idy][match(mod$data$year[idx], year_ids[idy])] <- mod$data$effort[idx]
   pred_set[idy, ][match(mod$data$year[idx], year_ids[idy]), ] <- mod$data$predictors[idx, ]
 }
+
 effort_seq <- ifelse(is.na(effort_seq), 1000, effort_seq)
+
+effort_seq <- tapply(mod$data$effort, mod$data$system, median)[sys_ids]
 
 # set some means for unobserved cases
 pred_set <- ifelse(is.na(pred_set), 0, pred_set)

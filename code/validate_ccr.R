@@ -17,10 +17,16 @@ validate.ccr_model <- function(obj, folds = 10, ...) {
   folds <- create_folds(n, folds)
   
   # create test and train data sets from folds
-  data_folds <- lapply(seq_along(folds), extract_folds, obj$data, folds)
+  data_folds <- lapply(folds, extract_folds, obj$data)
 
   # fit a model for each fold
-  mod_cv <- future.apply::future_lapply(seq_along(folds), validate_internal, data_folds, priors, mcmc_settings, ...)
+  mod_cv <- lapply(
+    data_folds,
+    validate_internal,
+    priors,
+    mcmc_settings,
+    ...
+  )
 
   # unpack list
   out <- list()
@@ -33,33 +39,40 @@ validate.ccr_model <- function(obj, folds = 10, ...) {
 }
 
 # internal function to run cross validation
-validate_internal <- function(i, data, priors, mcmc_settings, ...) {
+validate_internal <- function(data, priors, mcmc_settings, ...) {
   
   # unpack data
-  response <- data[[i]]$data_train$response
-  length_age_matrix <- data[[i]]$data_train$length_age_matrix
-  predictors <- data[[i]]$data_train$predictors
-  effort <- data[[i]]$data_train$effort
-  system <- data[[i]]$data_train$system
-  year <- data[[i]]$data_train$year
+  response <- data$data_train$response
+  length_age_matrix <- data$data_train$length_age_matrix
+  predictors <- data$data_train$predictors
+  effort <- data$data_train$effort
+  system <- data$data_train$system
+  year <- data$data_train$year
+  n_age <- ncol(response)
+  sys_year <- data.frame(system = rep(system, n_age),
+                         year = c(sapply(seq_len(n_age), function(x) year - x + 1)))
 
   # fit a model
   mod_tmp <- fit_ccr(response = response,
                      length_age_matrix = length_age_matrix,
                      predictors = predictors,
                      effort = effort,
-                     system = system, year = year,
+                     system = system,
+                     year = year,
+                     sys_year_flow = sys_year,
+                     include = list(sys_flow = TRUE,
+                                    survey = TRUE),
                      priors = priors,
                      mcmc_settings = mcmc_settings)
   
   # predict to holdout data
-  predictions <- predict(mod_tmp, data[[i]]$data_test, ...)
+  predictions <- predict(mod_tmp, data$data_test, ...)
   
   # reduce predictions to a mean value
   predictions <- apply(predictions, c(2, 3), mean)
   
   # return predictions and observed values
-  list(predicted = predictions, observed = data[[i]]$data_test$response)
+  list(predicted = predictions, observed = data$data_test$response)
   
 }
 
@@ -99,25 +112,25 @@ create_folds <- function(n, folds) {
 }
 
 # construct data lists with correct test/train splits
-extract_folds <- function(i, data, folds) {
+extract_folds <- function(folds, data) {
   
   # pull out training data
-  data_train <- list(response = data$response[-folds[[i]], ],
+  data_train <- list(response = data$response[-folds, ],
                      length_age_matrix = data$length_age_matrix,
-                     system = data$system[-folds[[i]]],
-                     year = data$year[-folds[[i]]],
-                     predictors = data$predictors[-folds[[i]], ],
-                     effort = data$effort[-folds[[i]]],
-                     cohort_mat = data$cohort_mat[-folds[[i]], ])
+                     system = data$system[-folds],
+                     year = data$year[-folds],
+                     predictors = data$predictors[-folds, ],
+                     effort = data$effort[-folds],
+                     cohort_mat = data$cohort_mat[-folds, ])
   
   # pull out testing data
-  data_test <- list(response = data$response[folds[[i]], ],
+  data_test <- list(response = data$response[folds, ],
                     length_age_matrix = data$length_age_matrix,
-                    system = data$system[folds[[i]]],
-                    year = data$year[folds[[i]]],
-                    predictors = data$predictors[folds[[i]], ],
-                    effort = data$effort[folds[[i]]],
-                    cohort_mat = data$cohort_mat[folds[[i]], ])
+                    system = data$system[folds],
+                    year = data$year[folds],
+                    predictors = data$predictors[folds, ],
+                    effort = data$effort[folds],
+                    cohort_mat = data$cohort_mat[folds, ])
   
   # return outputs
   list(data_train = data_train, data_test = data_test)
