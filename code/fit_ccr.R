@@ -2,8 +2,10 @@
 fit_ccr <- function(response, length_age_matrix,
                     predictors, effort,
                     system, year,
+                    include = list(),
                     priors = list(),
-                    mcmc_settings = list()) {
+                    mcmc_settings = list(),
+                    optim_start = FALSE) {
   
   # unpack priors
   prior_set <- list(sigma = 2 * sd(log(response + 1)),
@@ -15,7 +17,13 @@ fit_ccr <- function(response, length_age_matrix,
                    warmup = 2000,
                    chains = 4)
   mcmc_set[names(mcmc_settings)] <- mcmc_settings
-  
+
+  # unpack inclusions
+  inclusions <- list(year = TRUE,
+                     cohort = TRUE,
+                     sys_flow = TRUE)
+  inclusions[names(include)] <- include
+    
   # ideally want to keep stored samples down
   if (is.null(mcmc_settings$thin))
     mcmc_set$thin <- ifelse(mcmc_set$n_samples > 1000, floor(mcmc_set$n_samples / 1000), 1)
@@ -48,12 +56,10 @@ fit_ccr <- function(response, length_age_matrix,
   length_age_prior <- zeros(n_len, n_age) + 0.001
   length_age_prior[row(length_age_prior) == col(length_age_prior)] <- 10
   length_to_age <- dirichlet(alpha = length_age_prior)
-  # length_to_age <- matrix(0, nrow = n_len, ncol = n_age)
-  # length_to_age[row(length_to_age) == col(length_to_age)] <- 1
-  
+
   # set likelihood on length-age conversion data
-  # distribution(length_age_matrix) <-
-  #   multinomial(size = apply(length_age_matrix, 1, sum), prob = length_to_age)
+  distribution(length_age_matrix) <-
+    multinomial(size = apply(length_age_matrix, 1, sum), prob = length_to_age)
   
   # need to set some variance priors for hierarchical coefficients
   sigma_alpha <- normal(0, prior_set$sigma, truncation = c(0, Inf))
@@ -71,20 +77,33 @@ fit_ccr <- function(response, length_age_matrix,
   # sigma_pred_sub <- normal(0, prior_set$sigma, dim = c(n_age, n_predictors), truncation = c(0, Inf))
   # sigma_pred <- do.call(rbind, lapply(seq_len(n_system), function(i) sigma_pred_sub))
   # pred_effects <- normal(0, sigma_pred, dim = c(n_sys_age, n_predictors))
-  # sigma_pred_sub <- normal(0, prior_set$sigma, dim = c(1, n_predictors), truncation = c(0, Inf))
-  # sigma_pred <- do.call(rbind, lapply(seq_len(n_system), function(i) sigma_pred_sub))
-  # pred_effects <- normal(0, sigma_pred, dim = c(n_system, n_predictors))
-  sigma_pred <- normal(0, prior_set$sigma, dim = n_predictors, truncation = c(0, Inf))
-  pred_effects <- normal(0, sigma_pred, dim = n_predictors)
+  if (inclusions$sys_flow) {
+    sigma_pred_sub <- normal(0, prior_set$sigma, dim = c(1, n_predictors), truncation = c(0, Inf))
+    sigma_pred <- do.call(rbind, lapply(seq_len(n_system), function(i) sigma_pred_sub))
+    pred_effects <- normal(0, sigma_pred, dim = c(n_system, n_predictors))
+  } else {
+    sigma_pred <- normal(0, prior_set$sigma, dim = n_predictors, truncation = c(0, Inf))
+    pred_effects <- normal(0, sigma_pred, dim = n_predictors)
+  }
   
   # define linear predictor: includes system and age specific predictor effects, with random intercepts for year and cohort
-  mu <- alpha[sys_vec] + beta[sys_vec] * age_vec +
-    # gamma_cohort[cohort_vec] +
-    gamma_year[year_vec] +
-    # rowSums(pred_effects[sys_age_vec, ] * predictors[survey_vec, ]) +
-    # rowSums(pred_effects[sys_vec, ] * predictors[survey_vec, ]) +
-    predictors[survey_vec, ] %*% pred_effects +
-    log(effort_vec)
+  mu <- alpha[sys_vec] + beta[sys_vec] * age_vec + log(effort_vec)
+  
+  # include cohorts?
+  if (inclusions$cohort)
+    mu <- mu + gamma_cohort[cohort_vec]
+
+  # include years?    
+  if (inclusions$year)
+    mu <- mu + gamma_year[year_vec]
+  
+  # include flow effects by system?
+  # rowSums(pred_effects[sys_age_vec, ] * predictors[survey_vec, ])
+  if (inclusions$sys_flow) {
+    mu <- mu + rowSums(pred_effects[sys_vec, ] * predictors[survey_vec, ])
+  } else {
+    mu <- mu + predictors[survey_vec, ] %*% pred_effects
+  }
   
   # put back on original scale
   modelled_ages <- exp(mu)
@@ -102,25 +121,50 @@ fit_ccr <- function(response, length_age_matrix,
   distribution(response_vec) <- poisson(length_vec)
   
   # compile model
-  mod <- model(alpha, beta, pred_effects, 
-               length_to_age,
-               gamma_cohort, gamma_year)
+  full_model <- inclusions$cohort & inclusions$year
+  if (!full_model)
+    empty_model <- !(inclusions$cohort | inclusions$year)
+  if (full_model) {
+    mod <- model(alpha, beta, pred_effects, 
+                 length_to_age,
+                 gamma_cohort, gamma_year)
+  } else {
+    if (!empty_model) {
+      if (inclusions$cohort) {
+        mod <- model(alpha, beta, pred_effects, 
+                     length_to_age, gamma_cohort)
+      } else {
+        mod <- model(alpha, beta, pred_effects, 
+                     length_to_age, gamma_year)
+      }
+    } else {
+      mod <- model(alpha, beta, pred_effects,
+                   length_to_age)
+    }
+  }
   
   # set initial values
-  # opt_start <- opt(mod, max_iterations = 10000, tolerance = 0.01)
-  # inits <- initials(alpha = c(-10, -5, -7, 0, -7))
-  # inits <- initials(alpha = opt_start$par$alpha,
-  #                   beta = opt_start$par$beta,
-  #                   pred_effects = opt_start$par$pred_effects,
-  #                   gamma_cohort = opt_start$par$gamma_cohort,
-  #                   gamma_year = opt_start$par$gamma_year)
+  if (optim_start) {
+    inits <- list()
+    for (i in seq_len(mcmc_set$chains)) {
+      opt_start <- opt(mod, max_iterations = 1000, tolerance = 1e-4)
+      inits[[i]] <- initials(alpha = opt_start$par$alpha,
+                             beta = opt_start$par$beta,
+                             pred_effects = opt_start$par$pred_effects)
+    }
+  } else {
+    inits <- lapply(seq_len(mcmc_set$chains), function(i) initials(alpha = rnorm(length(alpha))))
+  }
   
   # sample from model
-  draws <- mcmc(mod, sampler = hmc(Lmin = 10, Lmax = 200, epsilon = 0.1),
+  draws <- mcmc(mod,
+                # sampler = hmc(Lmin = 10, Lmax = 100, epsilon = 0.1),
+                sampler = rwmh(),
                 n_samples = mcmc_set$n_samples,
                 warmup = mcmc_set$warmup,
                 thin = mcmc_set$thin,
-                chains = mcmc_set$chains)
+                chains = mcmc_set$chains,
+                initial_values = inits)
   
   # compile data into a clean output obj
   data_list <- list(response = response,
@@ -135,7 +179,8 @@ fit_ccr <- function(response, length_age_matrix,
   out <- list(data = data_list,
               draws = draws,
               priors = priors,
-              mcmc_settings = mcmc_settings)
+              mcmc_settings = mcmc_settings,
+              include = inclusions)
   
   # set class
   out <- as.ccr_model(out)

@@ -3,298 +3,331 @@ setwd("~/Dropbox/research/catch-curves/")
 
 # load packages
 library(rstanarm)
+library(lubridate)
 
 # load some helper functions
 source("code/helpers.R")
 
 # load compiled survey data
-alldat <- readRDS("data/data-loaded-Jul19.rds")
+alldat <- readRDS("data/data-loaded-Oct19.rds")
 
 # filter survey data to MC
-to_keep <- alldat$Scientific.Name == "Maccullochella peelii"
+to_keep <- alldat$scientific_name == "Maccullochella peelii"
 alldat <- alldat[to_keep, ]
-alldat$Common.Name <- NULL
+
+# load otolith data
+oti_data <- readRDS("data/otolith-data-loaded.rds")
+
+# filter to MC
+oti_data <- oti_data[oti_data$SPECIES == "Maccullochella peelii", ]
 
 # need to load flow data
-flow_data <- readRDS("data/flow-data-loaded-Jul19.rds")
+flow_data <- readRDS("data/flow-data-loaded-Oct19.rds")
 
 # filter to MC
 flow_data <- flow_data[to_keep, ]
 
 # optional: subset to systems of interest
-systems_to_keep <- c("BROKEN", "GOULBURN",
-                     "KING", "LOWERMURRAY", "OVENS")
-flow_data <- flow_data[alldat$SYSTEM %in% systems_to_keep, ]
-alldat <- alldat[alldat$SYSTEM %in% systems_to_keep, ]
+systems_to_keep <- c("broken", "goulburn", "king", "murray", "ovens")
+flow_data <- flow_data[alldat$system %in% systems_to_keep, ]
+alldat <- alldat[alldat$system %in% systems_to_keep, ]
 
-# data prep
-survey_data <- data.frame(length = alldat$totallength / 10,
-                          system = alldat$SYSTEM,
-                          site = alldat$SITE_CODE,
-                          year = alldat$YEAR,
+# hack for now because ovens site data incomplete
+alldat$site[is.na(alldat$site)] <- 1
+
+# prepare survey data
+survey_data <- data.frame(length_mm = alldat$total_length_mm,
+                          system = alldat$system,
+                          system_id = rebase_index(alldat$system),
+                          site = alldat$site,
+                          site_id = rebase_index(alldat$site),
+                          date = alldat$date_formatted,
                           dataset = alldat$dataset,
-                          effort = alldat$total_no_passes * alldat$seconds)
+                          dataset_id = rebase_index(alldat$dataset),
+                          effort = alldat$ef_seconds_total,
+                          stringsAsFactors = FALSE)
+
+# add years
+survey_data$year <- year(survey_data$date)
+survey_data$year_id <- rebase_index(survey_data$year)
+
+# fill NAs in length data for padded rows
+survey_data$length_mm[survey_data$dataset == "PADDED_TO_GET_FLOW_YEARS"] <- 0
+
+# remove any rows with missing data
 flow_data <- flow_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 survey_data <- survey_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
-survey_data$system <- as.integer(as.factor(survey_data$system))
-survey_data$site <- as.integer(as.factor(survey_data$site))
-survey_data$year <- as.integer(as.factor(survey_data$year))
-survey_data$dataset <- as.integer(as.factor(survey_data$dataset))
+
+# remove padded rows from survey data to calculate age matrix
+survey_data_filtered <- survey_data[survey_data$dataset != "PADDED_TO_GET_FLOW_YEARS", ]
 
 # convert observed lengths to ages
 len_par <- 150
 time_par <- 6
 k_par <- 0.0011
 c_par <- -103
-age_vec <- inverse_growth(survey_data$length,
+age_vec <- inverse_growth(survey_data_filtered$length_mm / 10,
                           len_par, time_par, k_par, c_par)
 age_vec[age_vec < 0] <- 0
 
 # pull out indices for random effects
-nsystem <- max(survey_data$system)
-nyear <- max(survey_data$year)
+nsystem <- max(survey_data_filtered$system_id)
+nyear <- max(survey_data_filtered$year_id)
 
 # settings for linear model
 max_age <- ceiling(max(age_vec))
 
 # we need binned data by site and year
 age_seq <- seq(-0.4, max_age + 1, by = 1)
-age_counts <- tapply(age_vec, list(survey_data$system, survey_data$year), hist_fn, breaks = age_seq)
+age_counts <- tapply(age_vec, list(survey_data_filtered$system_id, survey_data_filtered$year_id), hist_fn, breaks = age_seq)
 age_mat <- do.call(rbind, c(age_counts))
-age_mat <- do.call(rbind, c(age_counts))
-age_mat <- age_mat[, 1:4]
 
-# need to bin survey effort as well
-effort <- tapply(survey_data$effort, list(survey_data$system, survey_data$year), mean)
+# how many age classes to keep (default = 6)?
+n_age <- 6
 
-# include flow in year of survey only, assume cohort effects are captured in
-#   survival link among years (flow affects YOY, which carries through to later years)
-rrang_compiled <- tapply(flow_data$rrang_spwn_mld, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-rrang_ym1_compiled <- tapply(flow_data$rrang_spwn_mld_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-psprw_compiled <- tapply(flow_data$prop_spr_lt_win, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-psumw_compiled <- tapply(flow_data$prop_sum_lt_win, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-psprw_ym1_compiled <- tapply(flow_data$prop_spr_lt_win_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-psumw_ym1_compiled <- tapply(flow_data$prop_sum_lt_win_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-minwin_compiled <- tapply(flow_data$numlow_days, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-maxann_compiled <- tapply(flow_data$maxan_mld, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-maxann_ym1_compiled <- tapply(flow_data$maxan_mld_ym1, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
-spwn_temp_compiled <- tapply(flow_data$spwntmp_c, list(survey_data$system, survey_data$year), mean, na.rm = TRUE)
+# pull out adult abundances
+age_vec_full <- inverse_growth(survey_data$length_mm / 10,
+                               len_par, time_par, k_par, c_par)
+age_vec_full[age_vec_full < 0] <- 0
+age_counts_full <- tapply(age_vec_full, list(survey_data$system_id, survey_data$year_id), hist_fn, breaks = age_seq)
+age_mat_full <- do.call(rbind, c(age_counts_full))
+adult_catch <- apply(age_mat_full[, 5:ncol(age_mat_full)], 1, sum)
 
-# standardise maximum annual flow with z-scores
-maxann_compiled <- sweep(maxann_compiled, 1, rowMeans(maxann_compiled, na.rm = TRUE), "-")
-maxann_compiled <- sweep(maxann_compiled, 1, apply(maxann_compiled, 1, sd, na.rm = TRUE), "/")
-maxann_ym1_compiled <- sweep(maxann_ym1_compiled, 1, rowMeans(maxann_ym1_compiled, na.rm = TRUE), "-")
-maxann_ym1_compiled <- sweep(maxann_ym1_compiled, 1, apply(maxann_ym1_compiled, 1, sd, na.rm = TRUE), "/")
+# cut off at 5 year olds based on linearity of count ~ age
+age_mat <- age_mat[, seq_len(n_age)]
 
-# replace King temperature data (all missing) with Ovens data
-spwn_temp_compiled[5, 12:13] <- mean(spwn_temp_compiled[5, c(11, 14)])
-spwn_temp_compiled[5, 18] <- mean(spwn_temp_compiled[5, c(17, 19)])
-spwn_temp_compiled[3, ]  <- spwn_temp_compiled[5, ]
+# how much effort went into each survey? This should be summed over all sits in a given system
+#   (but not double-count effort for each individual fish)
+sys_site <- paste(survey_data_filtered$system_id, survey_data_filtered$site, sep = "_")
+effort_site <- tapply(survey_data_filtered$effort,
+                      list(sys_site, survey_data_filtered$year_id),
+                      unique)
+year_ids <- rep(colnames(effort_site), each = nrow(effort_site))
+system_ids <- sapply(strsplit(rownames(effort_site), "_"), function(x) x[1])
+system_ids <- rep(system_ids, times = ncol(effort_site))
+effort_site <- sapply(c(effort_site), sum)
+effort <- tapply(effort_site, list(system_ids, year_ids), sum)
+effort <- effort[, order(as.numeric(colnames(effort)))]
+sys_site_full <- paste(survey_data$system, survey_data$site, sep = "_")
+effort_full <- tapply(survey_data$effort,
+                      list(sys_site_full, survey_data$year_id),
+                      unique)
+year_ids_full <- rep(colnames(effort_full), each = nrow(effort_full))
+system_ids_full <- sapply(strsplit(rownames(effort_full), "_"), function(x) x[1])
+system_ids_full <- rep(system_ids_full, times = ncol(effort_full))
+effort_full <- sapply(c(effort_full), sum)
+effort_full <- tapply(effort_full, list(system_ids_full, as.integer(year_ids_full)), sum)
 
-## MISSING temperature data for early Murray years
-# replace with mean from 2003-2010
-spwn_temp_compiled[4, 1:4] <- mean(spwn_temp_compiled[4, 5:10])
+# want to identify years with synthetic data because effort and catch is incorrect
+synth_data <- survey_data[survey_data$dataset == "PADDED_TO_GET_FLOW_YEARS", ]
+all_years <- tapply(synth_data$year, synth_data$system, function(x) sort(unique(x)))
+all_years$murray <- sort(c(all_years$murray, 2011:2018))
+observed_years <- tapply(survey_data_filtered$year, survey_data_filtered$system, function(x) sort(unique(x)))
+years_of_surveys <- mapply(`%in%`, all_years, observed_years)
+years_of_surveys_matrix <- t(effort_full)
+years_of_surveys_matrix[years_of_surveys_matrix > 0] <- do.call(c, years_of_surveys)
+years_of_surveys_matrix <- t(years_of_surveys_matrix)
 
-# pull out system and year info
-system_info <- rep(rownames(age_counts), times = nyear)
-year_info <- rep(colnames(age_counts), each = nsystem)
+# compile flow predictors
+var_sets <- list(c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "prop_sum_lt_win_ym1", "prop_sum_win_sq", "maxan_mld", "maxan_mld_ym1", "spwntmp_c"),
+                 c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "prop_sum_win_sq", "maxan_mld", "maxan_mld_ym1", "spwntmp_c"),
+                 c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "maxan_mld_ym1", "spwntmp_c"),
+                 c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "spwntmp_c"),
+                 c("rrang_spwn_mld", "spwntmp_c"),
+                 c("prop_spr_lt_win", "spwntmp_c"),
+                 c("prop_sum_lt_win", "spwntmp_c"),
+                 c("maxan_mld", "spwntmp_c"))
 
-## AUTOMATE THIS FOR ANY SET OF PREDICTORS
+vars_to_include <- var_sets[[3]]
+# vars_to_include <- c("prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "spwntmp_c")
 
-# subset to observed years and systems
-to_keep <- !sapply(c(age_counts), is.null)
-system_info <- as.numeric(system_info[to_keep])
-year_info <- as.numeric(year_info[to_keep])
-effort <- effort[to_keep]
-rrang_compiled <- rrang_compiled[to_keep]
-rrang_ym1_compiled <- rrang_ym1_compiled[to_keep]
-psprw_compiled <- psprw_compiled[to_keep]
-psumw_compiled <- psumw_compiled[to_keep]
-psprw_ym1_compiled <- psprw_ym1_compiled[to_keep]
-psumw_ym1_compiled <- psumw_ym1_compiled[to_keep]
-minwin_compiled <- minwin_compiled[to_keep]
-spwn_temp_compiled <- spwn_temp_compiled[to_keep]
-maxann_compiled <- maxann_compiled[to_keep]
-maxann_ym1_compiled <- maxann_ym1_compiled[to_keep]
+flow_compiled <- sapply(vars_to_include,
+                        function(x) tapply(get(x, flow_data),
+                                           list(survey_data$system, survey_data$year),
+                                           mean, na.rm = TRUE))
+sys_year <- data.frame(system = rep(sort(unique(survey_data$system_id)), times = length(unique(survey_data$year_id))),
+                       year = rep(sort(unique(survey_data$year_id)), each = length(unique(survey_data$system_id))))
+sys_year <- sys_year[!is.na(flow_compiled[, 1]), ]
+flow_compiled <- flow_compiled[!is.na(flow_compiled[, 1]), ]
 
-# standardise flow values
-rrang_std <- scale(rrang_compiled)
-rrang_ym1_std <- scale(rrang_ym1_compiled)
-psprw_std <- scale(psprw_compiled)
-psumw_std <- scale(psumw_compiled)
-psprw_ym1_std <- scale(psprw_ym1_compiled)
-psumw_ym1_std <- scale(psumw_ym1_compiled)
-minwin_std <- scale(minwin_compiled)
-spwntmp_std <- scale(spwn_temp_compiled)
-maxann_std <- scale(maxann_compiled)
-maxann_ym1_std <- scale(maxann_ym1_compiled)
+# expand system and year vectors
+system <- rep(as.integer(as.factor(rownames(effort))), times = ncol(effort))
+year <- rep(as.numeric(colnames(effort)), each = nrow(effort))
+is_missing <- effort == 0
+system <- system[!is_missing]
+year <- year[!is_missing]
+effort <- effort[!is_missing]
 
-# pull out means and SDs of unscaled flow variables
-flow_scales <- list()
-flow_scales$rrang_vec$mean <- attributes(rrang_std)$`scaled:center`
-flow_scales$rrang_vec$sd <- attributes(rrang_std)$`scaled:scale`
-flow_scales$rrang_ym1_vec$mean <- attributes(rrang_ym1_std)$`scaled:center`
-flow_scales$rrang_ym1_vec$sd <- attributes(rrang_ym1_std)$`scaled:scale`
-flow_scales$psprw_vec$mean <- attributes(psprw_std)$`scaled:center`
-flow_scales$psprw_vec$sd <- attributes(psprw_std)$`scaled:scale`
-flow_scales$psprw_ym1_vec$mean <- attributes(psprw_ym1_std)$`scaled:center`
-flow_scales$psprw_ym1_vec$sd <- attributes(psprw_ym1_std)$`scaled:scale`
-flow_scales$psumw_vec$mean <- attributes(psumw_std)$`scaled:center`
-flow_scales$psumw_vec$sd <- attributes(psumw_std)$`scaled:scale`
-flow_scales$psumw_ym1_vec$mean <- attributes(psumw_ym1_std)$`scaled:center`
-flow_scales$psumw_ym1_vec$sd <- attributes(psumw_ym1_std)$`scaled:scale`
-flow_scales$minwin_vec$mean <- attributes(minwin_std)$`scaled:center`
-flow_scales$minwin_vec$sd <- attributes(minwin_std)$`scaled:scale`
-flow_scales$spwntmp_vec$mean <- attributes(spwntmp_std)$`scaled:center`
-flow_scales$spwntmp_vec$sd <- attributes(spwntmp_std)$`scaled:scale`
-flow_scales$maxann_vec$mean <- attributes(maxann_std)$`scaled:center`
-flow_scales$maxann_vec$sd <- attributes(maxann_std)$`scaled:scale`
-flow_scales$maxann_ym1_vec$mean <- attributes(maxann_ym1_std)$`scaled:center`
-flow_scales$maxann_ym1_vec$sd <- attributes(maxann_ym1_std)$`scaled:scale`
-
-# create a matrix of indices identifying cohorts
-cohort_mat <- matrix(NA, nrow = length(system_info), ncol = ncol(age_mat))
-current_max <- 0
-for (i in seq_len(nsystem)) {
-  sys_sub <- system_info == i
-  year_sort <- year_info[sys_sub]
-  cohort_tmp <- matrix(NA, nrow = sum(sys_sub), ncol = ncol(age_mat))
-  cohort_tmp[1, ] <- rev(seq_len(ncol(age_mat)))
-  for (j in seq_len(sum(sys_sub))[-1])
-    cohort_tmp[j, ] <- cohort_tmp[j - 1, ] + 1
-  cohort_tmp <- cohort_tmp + current_max
-  current_max <- max(cohort_tmp)
-  cohort_mat[which(sys_sub)[order(year_sort)], ] <- cohort_tmp
+#   - King = Ovens (2004-200? filled with average of following 4 years)
+#   - Murray 1993-2002 filled with average of Murray 2003-2008
+if ("spwntmp_c" %in% vars_to_include) {
+  flow_compiled[sys_year$system == 4 & sys_year$year <= 10, "spwntmp_c"] <-
+    mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(11:16), "spwntmp_c"])
+  flow_compiled[sys_year$system == 3, "spwntmp_c"] <- 
+    flow_compiled[match(paste0("5", sys_year$year[sys_year$system == 3]), paste0(sys_year$system, sys_year$year)), "spwntmp_c"]
+  flow_compiled[sys_year$system == 3 & sys_year$year <= 15, "spwntmp_c"] <-
+    mean(flow_compiled[sys_year$system == 3 & sys_year$year %in% c(16:19), "spwntmp_c"])
 }
 
+# standardised flow data
+flow_std <- apply(flow_compiled, 2, scale)
+flow_scales <- apply(flow_compiled, 2, extract_standards)
+
+# add total abundance as a predictor
+years_of_surveys <- c(years_of_surveys_matrix)
+years_of_surveys <- years_of_surveys[effort_full > 0]
+effort_full <- effort_full[effort_full > 0]
+for (i in seq_len(max(sys_year$system))) {
+  idx <- sys_year$system == i & years_of_surveys == 0
+  idy <- sys_year$system == i & years_of_surveys == 1
+  min_year <- min(sys_year$year[idy])
+  idy <- sys_year$system == i & sys_year$year %in% c(min_year:(min_year + 3))
+  effort_full[idx] <- mean(effort_full[idy])
+  adult_catch[idx] <- median(adult_catch[idy])
+}
+flow_std <- cbind(flow_std, "adult_cpue" = c(scale(adult_catch / effort_full)))
+flow_scales <- cbind(flow_scales, "adult_cpue" = c(mean(adult_catch / effort_full), sd(adult_catch / effort_full)))
+
+# indices to use later
+n_age <- ncol(age_mat)
+n_obs <- nrow(age_mat)
+
+# pull out rows based on modified sys_year to account for staggered flows by age
+sys_year_observed <- paste(rep(system, n_age), c(sapply(seq_len(n_age), function(x) year - x + 1)), sep = "_")
+expanded_rows <- match(sys_year_observed, paste(sys_year$system, sys_year$year, sep = "_"))
+flow_expanded <- flow_std[expanded_rows, ]
+
 # now we need to create response and predictor variables
-data_set <- data.frame(age_predictor = rep(seq_len(ncol(age_mat)), each = nrow(age_mat)),
-                       system_vec = rep(system_info, times = ncol(age_mat)),
-                       year_vec = rep(year_info, times = ncol(age_mat)),
-                       rrang_vec = rep(rrang_std, times = ncol(age_mat)),
-                       rrang_ym1_vec = rep(rrang_ym1_std, times = ncol(age_mat)),
-                       psprw_vec = rep(psprw_std, times = ncol(age_mat)),
-                       psprw_ym1_vec = rep(psprw_ym1_std, times = ncol(age_mat)),
-                       psumw_vec = rep(psumw_std, times = ncol(age_mat)),
-                       psumw_ym1_vec = rep(psumw_ym1_std, times = ncol(age_mat)),
-                       minwin_vec = rep(minwin_std, times = ncol(age_mat)),
-                       maxann_vec = rep(maxann_std, times = ncol(age_mat)),
-                       maxann_ym1_vec = rep(maxann_ym1_std, times = ncol(age_mat)),
-                       spwntmp_vec = rep(spwntmp_std, times = ncol(age_mat)),
-                       cohort_vec = c(cohort_mat),
+data_set <- data.frame(age_predictor = rep(seq_len(n_age), each = n_obs),
+                       system_vec = factor(rep(system, times = n_age)),
+                       year_vec = factor(rep(year - min(year) + 1, times = n_age)),
+                       flow_expanded,
                        response_vec = c(age_mat),
-                       ncohort = length(unique(c(cohort_mat))),
-                       age_factor = factor(rep(seq_len(ncol(age_mat)), each = nrow(age_mat))),
+                       age_factor = factor(rep(seq_len(n_age), each = n_obs)),
                        sampling_effort = effort / 60)
-data_set$system_vec <- factor(data_set$system_vec)
+data_set$survey_vec <- rebase_index(paste(data_set$system_vec, data_set$year_vec, sep = "_"))
+
+# remove early years for all systems except Murray
+to_keep <- rep(seq_len(n_age), each = n_obs) > 1
+# to_keep[data_set$system_vec == 4] <- TRUE
+data_set <- data_set[to_keep, ]
 
 # mcmc settings
 n_iter <- 10000
-n_chains <- 4
+n_chains <- 3
 n_cores <- n_chains
 
-# create freq-hist plots
-# TEMP ONLY FOR SPAWNING -- CAN WE FOCUS ON YOY ONLY?
-# CHANGE IN FLOW SPR/SUM IS ABOUT SPAWNING
-## WINTER IS AFFECTING 1YO-up because flow is pre-spawning.
+# mod_tmp <- list()
+# for (i in seq_along(vars_to_include)) {
+#   
+#   formula_tmp <- paste0("response_vec ~ (age_predictor | system_vec) + ",
+#                         paste(paste0("(-1 + ", vars_to_include[i], " | system_vec)"), collapse = " + "),
+#                         " + (1 | year_vec)")
+#   
+#   mod_tmp[[i]] <- lme4::glmer(formula_tmp,
+#                               offset = log(sampling_effort),
+#                               data = data_set,
+#                               family = stats::poisson(),
+#                               na.action = "na.fail")
+# 
+# }
+# 
+# mod_fixed <- paste("response_vec ~ ", 
+#                    paste0("(age_predictor | system_vec) + ",
+#                           paste(vars_to_include, collapse = " + ")),
+#                      " + (1 | year_vec)",
+#                      sep = "")
+# 
+# mod_test <- lme4::glmer(mod_fixed,
+#                         offset = log(sampling_effort),
+#                         data = data_set,
+#                         family = stats::poisson(),
+#                         na.action = "na.fail")
+# many_mods <- dredge(mod_test)
 
-## COUDL FIT MULTIPLE MODELS:
-## YOY - SPRING FLOWS ,SUMMER FLOWS, SPWN_TMP, YM1_MAX flows.
-## SURVIVAL MODEL
+vars_to_include <- c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "spwntmp_c", "adult_cpue")
 
-## ADDED OFFSET for sampling effort (seconds * no_passes) (check that should be log transformed (on link scale or not?))
-## RRANG IS NOW PROPORTIONAL CHANGE (max / min)
-## Check RRANG if min(x) == 0 [when rrang -> Inf]
-## LT_WIN is now LT_MEDIAN over all months (for psprw and psumw)
+sys_term <- paste0("(age_predictor | system_vec) + ",
+                   paste(paste0("(-1 + ", vars_to_include, " | system_vec)"), collapse = " + "))
 
-# COUDL ADD YM2 if fits? (probably not; could use some average of two years??)
+mod_formula <- paste("response_vec ~ ", 
+                     sys_term,
+                     " + (1 | survey_vec)",
+                     sep = "")
+# 
+# mod_test2 <- lme4::glmer(mod_formula,
+#                          offset = log(sampling_effort),
+#                          data = data_set,
+#                          family = stats::poisson(),
+#                          na.action = "na.fail")
+
 
 # fit the full model with all predictors
-mod_full <- stan_glmer(response_vec ~ age_predictor + 
-                         (rrang_vec + #rrang_ym1_vec +
-                            psprw_vec + #psprw_ym1_vec +
-                            psumw_vec + #psumw_ym1_vec + 
-                            (psumw_vec ^ 2) + 
-                            maxann_vec + #maxann_ym1_vec +
-                            spwntmp_vec | system_vec) +
-                         (-1 +
-                            rrang_vec + #rrang_ym1_vec +
-                            psprw_vec + #psprw_ym1_vec +
-                            psumw_vec + #psumw_ym1_vec +
-                            (psumw_vec ^ 2) +
-                            maxann_vec + #maxann_ym1_vec +
-                            spwntmp_vec | age_factor) +
-                         (1 | year_vec) +
-                         (1 | cohort_vec),
+mod_full <- stan_glmer(mod_formula,
                        iter = n_iter, chains = n_chains,
                        data = data_set, offset = log(sampling_effort),
-                       family = stats::poisson, cores = n_cores)
-
-# fit a reduced model without age-specific flow effects
-mod_noage <- stan_glmer(response_vec ~ age_predictor + 
-                          (rrang_vec + rrang_ym1_vec +
-                             psprw_vec + psprw_ym1_vec +
-                             psumw_vec + psumw_ym1_vec + 
-                             (psumw_vec ^ 2) + 
-                             maxann_vec + maxann_ym1_vec +
-                             spwntmp_vec | system_vec) +
-                          (1 | year_vec) +
-                          (1 | cohort_vec),
-                        iter = n_iter, chains = n_chains,
-                        data = data_set, offset = log(sampling_effort),
-                        family = stats::poisson, cores = n_cores)
-
-# fit a reduced model without system-specific flow effects
-mod_nosys <- stan_glmer(response_vec ~ age_predictor + 
-                          (-1 + rrang_vec + rrang_ym1_vec +
-                             psprw_vec + psprw_ym1_vec +
-                             psumw_vec + psumw_ym1_vec + 
-                             (psumw_vec ^ 2) + 
-                             maxann_vec + maxann_ym1_vec +
-                             spwntmp_vec | age_factor) +
-                          (1 | year_vec) +
-                          (1 | cohort_vec),
-                        iter = n_iter, chains = n_chains,
-                        data = data_set, offset = log(sampling_effort),
-                        family = stats::poisson, cores = n_cores)
-
-# fit a reduced model without system- or age-specific flow effects
-mod_nosys_noage <- stan_glmer(response_vec ~ age_predictor + 
-                                rrang_vec + rrang_ym1_vec +
-                                psprw_vec + psprw_ym1_vec +
-                                psumw_vec + psumw_ym1_vec + 
-                                (psumw_vec ^ 2) + 
-                                maxann_vec + maxann_ym1_vec +
-                                spwntmp_vec +
-                                (1 | year_vec) +
-                                (1 | cohort_vec),
-                              iter = n_iter, chains = n_chains,
-                              data = data_set, offset = log(sampling_effort),
-                              family = stats::poisson, cores = n_cores)
+                       family = neg_binomial_2(), cores = n_cores)
 
 # fit a reduced model without flow predictors
-mod_noflow <- stan_glmer(response_vec ~ age_predictor + 
-                           (1 | system_vec) +
-                           (1 | year_vec) +
-                           (1 | cohort_vec),
+mod_noflow <- stan_glmer(response_vec ~ (age_predictor | system_vec) +
+                           (1 | survey_vec),
                          iter = n_iter, chains = n_chains,
                          data = data_set, offset = log(sampling_effort),
-                         family = stats::poisson, cores = n_cores)
+                         family = neg_binomial_2(), cores = n_cores)
 
 # save fitted model/s
 saveRDS(mod_full, file = "outputs/fitted/full-model.rds")
 saveRDS(mod_noflow, file = "outputs/fitted/noflow-model.rds")
-saveRDS(mod_noage, file = "outputs/fitted/noage-model.rds")
-saveRDS(mod_nosys, file = "outputs/fitted/nosys-model.rds")
-saveRDS(mod_nosys_noage, file = "outputs/fitted/nosysnoage-model.rds")
 
 # save data and related
 saveRDS(data_set, file = "outputs/fitted/data-set.rds")
 additional_data <- list(flow_scales = flow_scales,
+                        flow_expanded = flow_expanded,
                         age_mat = age_mat,
-                        nyear = nyear,
-                        nsystem = nsystem,
-                        system_info = system_info,
-                        year_info = year_info,
-                        cohort_mat = cohort_mat)
+                        system = system,
+                        year = year)
 saveRDS(additional_data, file = "outputs/fitted/additional-data.rds")
+
+
+## check residuals
+## NB rather than Poisson model based on mean_PPD and LOO_IC
+# resid(mod_full) ~ fitted(mod_full)
+## plot residual image plots without fitted model values
+## but based on mod_noflow (i.e., what is the variation we are trying
+##  to explain with flow?)
+## plot flow associations
+## run multiple models to check which is "best"
+## calc bayes_r2 values for "best" model.
+## Plot variance components to highlight variable flow responses
+var_sets <- list(
+  c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "maxan_mld_ym1", "spwntmp_c"),
+  c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "spwntmp_c"),
+  c("prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "spwntmp_c"),
+  c("rrang_spwn_mld", "prop_sum_lt_win", "maxan_mld", "spwntmp_c"),
+  c("rrang_spwn_mld", "prop_spr_lt_win", "maxan_mld", "spwntmp_c"),
+  c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "spwntmp_c"),
+  c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld"),
+  c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "maxan_mld", "spwntmp_c", "adult_cpue")
+)
+
+### ADD IN THREE_VAR COMBOS??
+
+loo_out <- list()
+for (i in seq_along(var_sets)) {
+
+  vars_to_include <- var_sets[[i]]
+  sys_term <- paste0("(age_predictor | system_vec) + ",
+                     paste(paste0("(-1 + ", vars_to_include, " | system_vec)"), collapse = " + "))
+  mod_formula <- paste("response_vec ~ ", sys_term, sep = "")
+  
+  # fit the full model with all predictors
+  mod_compare <- stan_glmer(mod_formula,
+                            iter = n_iter, chains = n_chains,
+                            data = data_set, offset = log(sampling_effort),
+                            family = neg_binomial_2(), cores = n_cores)
+  
+  # how does it stack up?
+  loo_out[[i]] <- loo(mod_compare)
+  
+}
+

@@ -3,40 +3,42 @@
 files_cur <- ls()
 
 # load data
-alldat <- read.csv("../catch-curves/data/VEFMAP_FISH_20171024.csv")
+alldat <- read.csv("../catch-curves/data/VEFMAP_ALL_FISH_190731.csv")
 
 # load snags data set
-snags_data <- read.csv("../catch-curves/data/SNAGS_FISH_20171205.csv")
-snags_data$date_new <- format(dmy_hms(snags_data$surveydate), format = "%d/%m/%Y")
-snags_data$YEAR <- sapply(strsplit(snags_data$date_new, "/"),
-                          function(x) x[3])
-snags_data$taxonname <- as.character(snags_data$taxonname)
+snags_data <- read.csv("../catch-curves/data/SNAGS_FISH_20190827.csv")
+snags_data$date_new <- parse_date_time(snags_data$event_date, orders = c("dmy_HM"))
+snags_data$YEAR <- year(snags_data$date_new)
+snags_data$taxonname <- as.character(snags_data$common_name)
 snags_data$taxonname <- ifelse(snags_data$taxonname == "Yellowbelly",
                                "Golden perch",
                                snags_data$taxonname)
 snags_data$taxonname <- factor(snags_data$taxonname)
-snags_data2 <- data.frame(SYSTEM = rep("LOWERMURRAY", nrow(snags_data)),
-                          SITE_CODE = paste0("Lm", snags_data$idsite),
-                          Reach = rep(1, nrow(snags_data)),
-                          geartype = factor(rep("EF/Boat"), nrow(snags_data)),
-                          Event_Date = snags_data$date_new,
-                          Pass.No = rep(1, nrow(snags_data)),
+snags_data2 <- data.frame(sample_id = rep(NA, nrow(snags_data)),
+                          system = rep("LOWERMURRAY", nrow(snags_data)),
+                          site = paste0("Lm", snags_data$site),
+                          reach = rep(1, nrow(snags_data)),
+                          gear_type = factor(rep("EF/Boat"), nrow(snags_data)),
+                          event_date = snags_data$date_new,
+                          pass_no = rep(1, nrow(snags_data)),
                           total_no_passes = rep(1, nrow(snags_data)),
-                          seconds = snags_data$seconds,
-                          Common.Name = snags_data$taxonname,
-                          Scientific.Name = snags_data$Scientific.Name,
-                          totallength = snags_data$totallength,
-                          WEIGHT = snags_data$weight,
-                          Total.Sampled = rep(1, nrow(snags_data)),
-                          VEFMAP.Stage = rep(NA, nrow(snags_data)),
-                          YEAR = as.integer(snags_data$YEAR))
+                          ef_seconds_total = snags_data$ef_seconds_total,
+                          taxon_id = rep(NA, nrow(snags_data)),
+                          common_name = snags_data$taxonname,
+                          scientific_name = snags_data$scientific_name,
+                          total_length_mm = snags_data$total_length_mm,
+                          weight_g = snags_data$weight_g,
+                          no_collected = rep(1, nrow(snags_data)),
+                          no_observed = rep(NA, nrow(snags_data)),
+                          vefmap_stage = rep(NA, nrow(snags_data)),
+                          year = as.integer(snags_data$YEAR),
+                          notes = rep(NA, nrow(snags_data)))
 
 # load ovens data and combine with alldat
-ovens_data <- read.table("../catch-curves/data/vba_ovens_2008_2017.csv", sep = "\t", header = TRUE)
-ovens_data$date_new <- format(dmy(ovens_data$date), format = "%d/%m/%Y")
-ovens_data$YEAR <- sapply(strsplit(ovens_data$date_new, "/"),
-                          function(x) x[3])
-ovens_data$species <- as.character(ovens_data$species)
+ovens_data <- read.csv("../catch-curves/data/OVENS_VBA_2008_2017.csv", header = TRUE)
+ovens_data$date_new <- parse_date_time(ovens_data$event_date, orders = c("dmy"))
+ovens_data$YEAR <- year(ovens_data$date_new)
+ovens_data$species <- as.character(ovens_data$scientific_name)
 ovens_data$species <- ifelse(ovens_data$species == "Maccullochella peelii ",
                              "Maccullochella peelii peelii",
                              ovens_data$species)
@@ -44,22 +46,27 @@ ovens_data$species <- ifelse(ovens_data$species == "Maccullochella peelii",
                              "Maccullochella peelii peelii",
                              ovens_data$species)
 ovens_data$species <- factor(ovens_data$species)
-ovens_data$common_name <- alldat$Common.Name[match(ovens_data$species, alldat$Scientific.Name)]
-ovens_data2 <- data.frame(SYSTEM = rep("OVENS", nrow(ovens_data)),
-                          SITE_CODE = paste0("Ov", ovens_data$site),
-                          Reach = rep(1, nrow(ovens_data)),
-                          geartype = ovens_data$gear_type,
-                          Event_Date = ovens_data$date_new,
-                          Pass.No = rep(1, nrow(ovens_data)),
+ovens_data$common_name <- alldat$common_name[match(ovens_data$species, alldat$scientific_name)]
+ovens_data2 <- data.frame(sample_id = rep(NA, nrow(ovens_data)),
+                          system = rep("OVENS", nrow(ovens_data)),
+                          site = paste0("Ov", ovens_data$site),
+                          reach = rep(1, nrow(ovens_data)),
+                          gear_type = ovens_data$gear_type,
+                          event_date = ovens_data$date_new,
+                          pass_no = rep(1, nrow(ovens_data)),
                           total_no_passes = rep(1, nrow(ovens_data)),
-                          seconds = ovens_data$electro_seconds,
-                          Common.Name = ovens_data$common_name,
-                          Scientific.Name = ovens_data$species,
-                          totallength = ovens_data$total_length_mm,
-                          WEIGHT = ovens_data$weight_g,
-                          Total.Sampled = ovens_data$no_collected,
-                          VEFMAP.Stage = rep(NA, nrow(ovens_data)),
-                          YEAR = as.integer(ovens_data$YEAR))
+                          ef_seconds_total = ovens_data$ef_seconds_total,
+                          taxon_id = rep(NA, nrow(ovens_data)),
+                          common_name = ovens_data$common_name,
+                          scientific_name = ovens_data$species,
+                          total_length_mm = ovens_data$total_length_mm,
+                          weight_g = ovens_data$weight_g,
+                          no_collected = ovens_data$no_collected,
+                          no_observed = rep(NA, nrow(ovens_data)),
+                          vefmap_stage = rep(NA, nrow(ovens_data)),
+                          year = as.integer(ovens_data$YEAR),
+                          notes = rep(NA, nrow(ovens_data)))
+
 alldat <- rbind(alldat, ovens_data2, snags_data2)
 
 # set systems of interest
@@ -71,10 +78,10 @@ system_sub <- c("BROKEN",
                 "LODDON",
                 "THOMSON",
                 "OVENS")
-alldat <- alldat[-which(is.na(match(alldat$SYSTEM, system_sub))), ]
+alldat <- alldat[-which(is.na(match(alldat$system, system_sub))), ]
 
 # clean up common names
-alldat$Common.Name <- tolower(alldat$Common.Name)
+alldat$Common.Name <- tolower(alldat$common_name)
 alldat$Common.Name <- gsub(" ", "", alldat$Common.Name)
 alldat$Common.Name <- gsub("-[[:digit:]]*", "", alldat$Common.Name)
 alldat$Common.Name <- gsub("/", "", alldat$Common.Name)
@@ -120,7 +127,7 @@ alldat <- alldat[-which(!is.na(match(alldat$Common.Name, sp_to_rm))), ]
 alldat <- alldat[-which(is.na(alldat$Common.Name)), ]
 
 # reformat dates
-alldat$Date <- dmy(alldat$Event_Date)
+alldat$Date <- alldat$event_date
 
 # pull out species names
 sp_names <- unique(alldat$Common.Name)
@@ -136,18 +143,18 @@ for (i in seq_along(sp_names)) {
   
   # log transform length and weight
   rows_to_rm <- NULL
-  if (any(is.na(dat$totallength)))
-    rows_to_rm <- c(rows_to_rm, which(is.na(dat$totallength)))
-  if (any(is.na(dat$WEIGHT)))
-    rows_to_rm <- c(rows_to_rm, which(is.na(dat$WEIGHT)))
-  if (any(dat$totallength <= 0, na.rm = TRUE))
-    rows_to_rm <- c(rows_to_rm, which(dat$totallength <= 0))
-  if (any(dat$WEIGHT <= 0, na.rm = TRUE))
-    rows_to_rm <- c(rows_to_rm, which(dat$WEIGHT <= 0))
+  if (any(is.na(dat$total_length_mm)))
+    rows_to_rm <- c(rows_to_rm, which(is.na(dat$total_length_mm)))
+  if (any(is.na(dat$weight_g)))
+    rows_to_rm <- c(rows_to_rm, which(is.na(dat$weight_g)))
+  if (any(dat$total_length_mm <= 0, na.rm = TRUE))
+    rows_to_rm <- c(rows_to_rm, which(dat$total_length_mm <= 0))
+  if (any(dat$weight_g <= 0, na.rm = TRUE))
+    rows_to_rm <- c(rows_to_rm, which(dat$weight_g <= 0))
   if (length(rows_to_rm))
     dat <- dat[-rows_to_rm, ]
-  log_length <- log(dat$totallength)
-  log_weight <- log(dat$WEIGHT)
+  log_length <- log(dat$total_length_mm)
+  log_weight <- log(dat$weight_g)
   
   # fit linear model to log-log transformed data
   if (length(log_weight) > 10)
@@ -168,11 +175,11 @@ for (i in seq_along(sp_names)) {
   
   # save outputs
   length_weight_conversion[[sp_names[i]]] <- list(n = n_obs,
-                                                coef = coefs_tmp,
-                                                length = dat$totallength,
-                                                weight = dat$WEIGHT,
-                                                r2 = r2_vals,
-                                                resid = resid_tmp)
+                                                  coef = coefs_tmp,
+                                                  length = dat$totallength,
+                                                  weight = dat$WEIGHT,
+                                                  r2 = r2_vals,
+                                                  resid = resid_tmp)
   
 }
 

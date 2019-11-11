@@ -1,9 +1,9 @@
-coefs_sra <- read.csv("./data/sra-length-weight-relation.csv")
+coefs_sra <- read.csv("../fish-trends/data/sra-length-weight-relation.csv")
 
 # load data
-alldat <- read.csv("./data/VEFMAP_FISH_20171024.csv")
+alldat <- read.csv("../fish-trends/data/VEFMAP_FISH_20171024.csv")
 
-snags_data <- read.csv("./data/SNAGS_FISH_20171205.csv")
+snags_data <- read.csv("../fish-trends/data/SNAGS_FISH_20171205.csv")
 snags_data$date_new <- format(dmy_hms(snags_data$surveydate), format = "%d/%m/%Y")
 snags_data$YEAR <- sapply(strsplit(snags_data$date_new, "/"),
                           function(x) x[3])
@@ -29,7 +29,7 @@ snags_data2 <- data.frame(SYSTEM = rep("LOWERMURRAY", nrow(snags_data)),
                           YEAR = as.integer(snags_data$YEAR))
 
 # load ovens data and combine with alldat
-ovens_data <- read.table("./data/vba_ovens_2008_2017.csv", sep = "\t", header = TRUE)
+ovens_data <- read.table("../fish-trends/data/vba_ovens_2008_2017.csv", sep = "\t", header = TRUE)
 ovens_data$date_new <- format(dmy(ovens_data$date), format = "%d/%m/%Y")
 ovens_data$YEAR <- sapply(strsplit(ovens_data$date_new, "/"),
                           function(x) x[3])

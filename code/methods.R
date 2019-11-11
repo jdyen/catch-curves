@@ -13,6 +13,11 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
   if (is.null(newdata))
     newdata <- obj$data
   
+  if (cohort)
+    cohort <- ifelse(obj$include$cohort, TRUE, FALSE)
+  if (year)
+    year <- ifelse(obj$include$year, TRUE, FALSE)
+  
   # what if effort data are not provided?
   if (is.null(newdata$effort))
     newdata$effort <- rep(1, nrow(newdata$predictors))
@@ -46,7 +51,7 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
   # calculate sys_age combo from system and age
   n_age <- ncol(newdata$length_age_matrix)
   new_sys_age <- n_age * (new_sys - 1) + new_age_vec
-  
+
   # combine the draws and thin if needed
   if (thin > 1)
     samples <- samples[seq(1, nrow(samples), by = thin), ]
@@ -70,10 +75,17 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
   n_cohort <- ncol(cohort_est)
   n_year <- ncol(year_est)
   n_sys_age <- n_age * n_system
-  n_predictors <- ncol(pred_est) / n_sys_age
-  
+  if (obj$include$sys_flow)
+    n_predictors <- ncol(pred_est) / n_system
+  else
+    n_predictors <- ncol(pred_est)
+    
   # reformat into correct dimensions
-  pred_array <- array(pred_est, dim = c(n_samples, n_sys_age, n_predictors))
+  # pred_array <- array(pred_est, dim = c(n_samples, n_sys_age, n_predictors))
+  if (obj$include$sys_flow)
+    pred_array <- array(pred_est, dim = c(n_samples, n_system, n_predictors))
+  else 
+    pred_array <- array(pred_est, dim = c(n_samples, n_predictors))
   convert_array <- array(convert, dim = c(n_samples, n_len, n_age))
   
   # need to check that new systems, cohorts, and years are within previous bounds
@@ -87,14 +99,21 @@ predict.ccr_model <- function(obj, newdata = NULL, thin = 1, lengths = TRUE,
   beta_est <- cbind(beta_est, rep(0, n_samples))
   cohort_est <- cbind(cohort_est, rep(0, n_samples))
   year_est <- cbind(year_est, rep(0, n_samples))
-  pred_array <- abind::abind(pred_array, along = 2, array(0, dim = c(n_samples, n_predictors)))
+  if (obj$include$sys_flow)
+    pred_array <- abind::abind(pred_array, along = 2, array(0, dim = c(n_samples, n_predictors)))
   
   # calculate linear predictor
   mu_pred <- alpha_est[, new_sys] +
     sweep(beta_est[, new_sys], 2, new_age_vec, "*") +
-    apply(sweep(pred_array[, new_sys_age, ], c(2, 3), new_predictors[new_survey, ], "*"), c(1, 2), sum) +
     log(new_effort)
 
+  # is flow included by system?
+  # mu_pred <- mu_pred + apply(sweep(pred_array[, new_sys_age, ], c(2, 3), new_predictors[new_survey, ], "*"), c(1, 2), sum)
+  if (obj$include$sys_flow)
+    mu_pred <- mu_pred + apply(sweep(pred_array[, new_sys, ], c(2, 3), new_predictors[new_survey, ], "*"), c(1, 2), sum)
+  else
+    mu_pred <- mu_pred + pred_array %*% t(new_predictors[new_survey, ])
+  
   # should we add random effects?
   if (year)
     mu_pred <- mu_pred + year_est[, new_year]

@@ -1,9 +1,13 @@
 # set working directory
 setwd("~/Dropbox/research/catch-curves/")
 
+# can't find tensorflow
+tensorflow::use_condaenv("r-tensorflow")
+
 # load packages
 library(lubridate)
 library(greta)
+library(future)
 
 # load some helper functions
 source("code/helpers.R")
@@ -60,20 +64,38 @@ survey_data <- survey_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 
 ## TRY INCLUDING ALL AGE/LENGTH CLASSES: seems like we're dropping off larger fish, which
 ##   might give overly steep slopes. Or we could truncate the modelled ages?
+## USE THIS:
+# length_from_age(-0.4:7.5, length_inf = 150, time_zero = 6, k_param = 0.0011, c_param = -103)
 
 # bin otolith data by age and size: offset by -0.4 (0-0.6 = YOY, 0.6-1.6 = 1YO, etc.)
 oti_data$age_class <- cut(oti_data$AGE, breaks = c(-0.4:ceiling(max(oti_data$AGE, na.rm = TRUE))),
                           labels = FALSE)
-size_breaks <- c(10 * length_from_age(-0.4:7.5, length_inf = 150, time_zero = 6, k_param = 0.0011, c_param = -103),
-                 max(survey_data$length_mm, na.rm = TRUE))
+# size_breaks <- c(10 * length_from_age(-0.4:7.5, length_inf = 150, time_zero = 6, k_param = 0.0011, c_param = -103),
+#                  max(survey_data$length_mm, na.rm = TRUE))
+size_breaks <- 10 * length_from_age(c(-0.4:140.5), length_inf = 150, time_zero = 6, k_param = 0.0011, c_param = -103)
+
 oti_data$len_class <- cut(oti_data$T_Length..mm., breaks = size_breaks, labels = FALSE)
 length_age_matrix <- classify(oti_data$len_class, oti_data$age_class)
+length_age_matrix <- rbind(length_age_matrix,
+                           matrix(0,
+                                  nrow = (length(size_breaks) - 1 - nrow(length_age_matrix)),
+                                  ncol = ncol(length_age_matrix)))
+length_age_matrix <- cbind(length_age_matrix,
+                           matrix(0,
+                                  nrow = nrow(length_age_matrix),
+                                  ncol = (length(size_breaks) - 1 - ncol(length_age_matrix))))
 
 # how many length classes do we need to keep to give all 0-4 year olds?
-n_len <- max(which(length_age_matrix[, 5] > 0))
+n_len <- max(which(apply(length_age_matrix, 1, sum) > 0))
 
 # how many age classes do we need to keep to give all 0:n_len length individuals?
-n_age <- max(which(length_age_matrix[n_len, ] > 0))
+n_age <- max(which(apply(length_age_matrix, 2, sum) > 0))
+
+if (n_age < n_len) {
+  n_age <- n_len
+} else {
+  n_len <- n_age
+}
 
 # let's just keep those from the age_length_matrix
 length_age_matrix <- length_age_matrix[seq_len(n_len), seq_len(n_age)]
@@ -88,6 +110,8 @@ pop_abund <- apply(response_matrix[, 5:ncol(response_matrix)], 1, sum)
 # filter length class survey data to the length classes we care about (1:n_len)
 response_matrix <- response_matrix[, seq_len(n_len)]
 
+# pad diagonal of length-age matrix
+diag(length_age_matrix) <- diag(length_age_matrix) + 1
 
 # define system/year predictors
 system <- c(tapply(survey_data$system_id,
@@ -125,47 +149,48 @@ var_sets <- list(c("rrang_spwn_mld", "prop_spr_lt_win", "prop_sum_lt_win", "prop
                  c("prop_spr_lt_win", "spwntmp_c"),
                  c("prop_sum_lt_win", "spwntmp_c"),
                  c("maxan_mld", "spwntmp_c"))
-mod <- list()
-mod_cv <- list()
-for (i in 2) { #seq_along(var_sets)) {
-  
-  vars_to_include <- var_sets[[i]]
-  flow_compiled <- sapply(vars_to_include,
-                          function(x) tapply(get(x, flow_data),
-                                             list(survey_data$system_id, survey_data$year_id),
-                                             mean, na.rm = TRUE))
-  flow_compiled <- flow_compiled[!is.na(flow_compiled[, 1]), ]
-  
-  # replace missing temperature data:
-  #   - King = Ovens (2011, 2012, 2017, 2018, 2019 filled with mean of adjacent years)
-  #   - Murray 1999-2002 filled with average of Murray 2003-2008
-  if ("spwntmp_c" %in% vars_to_include) {
-    flow_compiled[system == 4 & year %in% c(1:4), "spwntmp_c"] <- mean(flow_compiled[system == 4 & year %in% c(5:10), "spwntmp_c"])
-    flow_compiled[system == 3, "spwntmp_c"] <- flow_compiled[match(paste0("5", year[system == 3]), paste0(system, year)), "spwntmp_c"]
-    flow_compiled[system == 3 & year %in% c(12:13), "spwntmp_c"] <- mean(flow_compiled[system == 3 & year %in% c(11, 14), "spwntmp_c"])
-    flow_compiled[system == 3 & year %in% c(19), "spwntmp_c"] <- mean(flow_compiled[system == 5 & year %in% c(18, 20), "spwntmp_c"])
-  }
-  
-  # standardised flow data
-  flow_std <- apply(flow_compiled, 2, scale)
-  flow_scales <- apply(flow_compiled, 2, extract_standards)
-  
-  # add total abundance as a predictor
-  flow_std <- cbind(flow_std, "pop_abund" = c(scale(pop_abund)))
-  flow_scales <- cbind(flow_scales, "pop_abund" = c(mean(pop_abund), sd(pop_abund)))
-  
-  # fit model
-  mod[[i]] <- fit_ccr(response = response_matrix,
-                      length_age_matrix = length_age_matrix,
-                      predictors = flow_std,
-                      effort = effort,
-                      system = system, year = year,
-                      mcmc_settings = list(n_samples = 20000, warmup = 20000, thin = 20))
-  
-  # validate model
- # mod_cv[[i]] <- validate(mod[[i]], folds = 10, year = TRUE, cohort = TRUE)
-  
+
+vars_to_include <- var_sets[[3]]
+flow_compiled <- sapply(vars_to_include,
+                        function(x) tapply(get(x, flow_data),
+                                           list(survey_data$system_id, survey_data$year_id),
+                                           mean, na.rm = TRUE))
+flow_compiled <- flow_compiled[!is.na(flow_compiled[, 1]), ]
+
+# replace missing temperature data:
+#   - King = Ovens (2011, 2012, 2017, 2018, 2019 filled with mean of adjacent years)
+#   - Murray 1999-2002 filled with average of Murray 2003-2008
+if ("spwntmp_c" %in% vars_to_include) {
+  flow_compiled[system == 4 & year %in% c(1:4), "spwntmp_c"] <- mean(flow_compiled[system == 4 & year %in% c(5:10), "spwntmp_c"])
+  flow_compiled[system == 3, "spwntmp_c"] <- flow_compiled[match(paste0("5", year[system == 3]), paste0(system, year)), "spwntmp_c"]
+  flow_compiled[system == 3 & year %in% c(12:13), "spwntmp_c"] <- mean(flow_compiled[system == 3 & year %in% c(11, 14), "spwntmp_c"])
+  flow_compiled[system == 3 & year %in% c(19), "spwntmp_c"] <- mean(flow_compiled[system == 5 & year %in% c(18, 20), "spwntmp_c"])
 }
 
-saveRDS(mod, file = "outputs/fitted-models.rds")
-saveRDS(mod_cv, file = "outputs/validated-models.rds")
+# standardised flow data
+flow_std <- apply(flow_compiled, 2, scale)
+flow_scales <- apply(flow_compiled, 2, extract_standards)
+
+# add total abundance as a predictor
+flow_std <- cbind(flow_std, "pop_abund" = c(scale(pop_abund)))
+flow_scales <- cbind(flow_scales, "pop_abund" = c(mean(pop_abund), sd(pop_abund)))
+
+# fit model
+mod <- fit_ccr(response = response_matrix,
+               length_age_matrix = length_age_matrix,
+               predictors = flow_std,
+               effort = effort,
+               include = list(cohort = TRUE,
+                              year = TRUE,
+                              sys_flow = TRUE),
+               system = system, year = year,
+               mcmc_settings = list(n_samples = 100000, warmup = 100000, thin = 10))
+
+# save outputs
+saveRDS(mod, file = paste0("outputs/fitted/mod_test_", format(Sys.time(), "%Y%m%d_%H%M"), ".rds"))
+
+# set future
+# plan(multiprocess)
+
+# validate model
+# mod_cv <- validate(mod, folds = 10, year = mod$include$year, cohort = mod$include$cohort)

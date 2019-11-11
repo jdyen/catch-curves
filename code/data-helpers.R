@@ -126,12 +126,13 @@ calculate_length_conversions <- function(data) {
     }
     
     # save outputs
-    length_weight_conversion[[sp_names[i]]] <- list(n = n_obs,
-                                                    coef = coefs_tmp,
-                                                    length = dat$totallength,
-                                                    weight = dat$WEIGHT,
-                                                    r2 = r2_vals,
-                                                    resid = resid_tmp)
+    length_weight_conversion[[sp_names[i]]] <-
+      list(n = n_obs,
+           coef = coefs_tmp,
+           length = dat$totallength,
+           weight = dat$WEIGHT,
+           r2 = r2_vals,
+           resid = resid_tmp)
     
   }
   
@@ -289,11 +290,25 @@ system_switch_fun <- function(x) {
   
 }
 
+# set month definitions
+define_months <- function() {
+  list(
+    all_months = c(1:12),
+    summer_months = c(12, 1:3),
+    cooler_months = c(5:7),
+    winter_months = c(6:8),
+    spawning_months = c(10:12),
+    spring_months = c(9:11)
+  )
+}
+
 # calculate flow metrics
 calc_flow_metrics <- function(x, na_thresh = 0.2) {
   
+  month_ids <- define_months()
+  
   if (is.null(x)) {
-    out <- rep(NA, 20)
+    out <- rep(NA, 22)
   } else {
     
     depth_data <- x[, grep("water_level", colnames(x))]
@@ -331,7 +346,9 @@ calc_flow_metrics <- function(x, na_thresh = 0.2) {
         mspr <- NA
         msum <- NA
         mspwn <- NA
+        mcool <- NA
         mwin <- NA
+        medcool <- NA
         medwin <- NA
         medspr <- NA
         medsum <- NA
@@ -344,34 +361,38 @@ calc_flow_metrics <- function(x, na_thresh = 0.2) {
         covaf <- sd(flow_data, na.rm = TRUE) / maf
         maxan <- max(flow_data, na.rm = TRUE)
         minan <- min(flow_data, na.rm = TRUE)
-        mspr <- mean(flow_data[month(x$Event_Date) %in% c(9:11)], na.rm = TRUE)
-        msum <- mean(flow_data[month(x$Event_Date) %in% c(12, 1:2)], na.rm = TRUE)
-        mspwn <- mean(flow_data[month(x$Event_Date) %in% c(10:12)], na.rm = TRUE)
-        mwin <- mean(flow_data[month(x$Event_Date) %in% c(5:7)], na.rm = TRUE)
-        medwin <- median(flow_data[month(x$Event_Date) %in% c(6:8)], na.rm = TRUE)
-        medspr <- median(flow_data[month(x$Event_Date) %in% c(9:11)], na.rm = TRUE)
-        medsum <- median(flow_data[month(x$Event_Date) %in% c(12, 1:2)], na.rm = TRUE)
-        covsp <- sd(flow_data[month(x$Event_Date) %in% c(10:12)], na.rm = TRUE) / mspwn
-        ransp <- rolling_range(flow_data[month(x$Event_Date) %in% c(10:12)], 3)
-        ransm <- rolling_range(flow_data[month(x$Event_Date) %in% c(12, 1:2)], 3)
-        minwin <- min(flow_data[month(x$Event_Date) %in% c(6:8)], na.rm = TRUE)
+        mspr <- mean(flow_data[month(x$Event_Date) %in% month_ids$spring_months], na.rm = TRUE)
+        msum <- mean(flow_data[month(x$Event_Date) %in% month_ids$summer_months], na.rm = TRUE)
+        mspwn <- mean(flow_data[month(x$Event_Date) %in% month_ids$spawning_months], na.rm = TRUE)
+        mcool <- mean(flow_data[month(x$Event_Date) %in% month_ids$cooler_months], na.rm = TRUE)
+        mwin <- mean(flow_data[month(x$Event_Date) %in% month_ids$winter_months], na.rm = TRUE)
+        medcool <- median(flow_data[month(x$Event_Date) %in% month_ids$cooler_months], na.rm = TRUE)
+        medwin <- median(flow_data[month(x$Event_Date) %in% month_ids$winter_months], na.rm = TRUE)
+        medspr <- median(flow_data[month(x$Event_Date) %in% month_ids$spring_months], na.rm = TRUE)
+        medsum <- median(flow_data[month(x$Event_Date) %in% month_ids$summer_months], na.rm = TRUE)
+        covsp <- sd(flow_data[month(x$Event_Date) %in% month_ids$spawning_months], na.rm = TRUE) / mspwn
+        ransp <- rolling_range(flow_data[month(x$Event_Date) %in% month_ids$spawning_months], 3)
+        ransm <- rolling_range(flow_data[month(x$Event_Date) %in% month_ids$summer_months], 3)
+        minwin <- min(flow_data[month(x$Event_Date) %in% month_ids$winter_months], na.rm = TRUE)
       }
     } else {
       maf <- mean(flow_data, na.rm = TRUE)
       covaf <- sd(flow_data, na.rm = TRUE) / maf
       maxan <- max(flow_data, na.rm = TRUE)
       minan <- min(flow_data, na.rm = TRUE)
-      mspr <- mean(flow_data[month(x$Event_Date) %in% c(9:11)], na.rm = TRUE)
-      msum <- mean(flow_data[month(x$Event_Date) %in% c(12, 1:2)], na.rm = TRUE)
-      mspwn <- mean(flow_data[month(x$Event_Date) %in% c(10:12)], na.rm = TRUE)
-      mwin <- mean(flow_data[month(x$Event_Date) %in% c(5:7)], na.rm = TRUE)
-      medwin <- median(flow_data[month(x$Event_Date) %in% c(6:8)], na.rm = TRUE)
-      medspr <- median(flow_data[month(x$Event_Date) %in% c(9:11)], na.rm = TRUE)
-      medsum <- median(flow_data[month(x$Event_Date) %in% c(12, 1:2)], na.rm = TRUE)
-      covsp <- sd(flow_data[month(x$Event_Date) %in% c(10:12)], na.rm = TRUE) / mspwn
-      ransp <- rolling_range(flow_data[month(x$Event_Date) %in% c(10:12)], 3)
-      ransm <- rolling_range(flow_data[month(x$Event_Date) %in% c(12, 1:2)], 3)
-      minwin <- min(flow_data[month(x$Event_Date) %in% c(6:8)], na.rm = TRUE)
+      mspr <- mean(flow_data[month(x$Event_Date) %in% month_ids$spring_months], na.rm = TRUE)
+      msum <- mean(flow_data[month(x$Event_Date) %in% month_ids$summer_months], na.rm = TRUE)
+      mspwn <- mean(flow_data[month(x$Event_Date) %in% month_ids$spawning_months], na.rm = TRUE)
+      mcool <- mean(flow_data[month(x$Event_Date) %in% month_ids$cooler_months], na.rm = TRUE)
+      mwin <- mean(flow_data[month(x$Event_Date) %in% month_ids$winter_months], na.rm = TRUE)
+      medcool <- median(flow_data[month(x$Event_Date) %in% month_ids$cooler_months], na.rm = TRUE)
+      medwin <- median(flow_data[month(x$Event_Date) %in% month_ids$winter_months], na.rm = TRUE)
+      medspr <- median(flow_data[month(x$Event_Date) %in% month_ids$spring_months], na.rm = TRUE)
+      medsum <- median(flow_data[month(x$Event_Date) %in% month_ids$summer_months], na.rm = TRUE)
+      covsp <- sd(flow_data[month(x$Event_Date) %in% month_ids$spawning_months], na.rm = TRUE) / mspwn
+      ransp <- rolling_range(flow_data[month(x$Event_Date) %in% month_ids$spawning_months], 3)
+      ransm <- rolling_range(flow_data[month(x$Event_Date) %in% month_ids$summer_months], 3)
+      minwin <- min(flow_data[month(x$Event_Date) %in% month_ids$winter_months], na.rm = TRUE)
     }
     
     if (any(is.na(depth_data))) {
@@ -398,31 +419,32 @@ calc_flow_metrics <- function(x, na_thresh = 0.2) {
         if ((sum(is.na(temp_data)) / length(temp_data)) > na_thresh) {
           spwntmp <- NA
         } else {
-          spwntmp <- mean(temp_data[month(x$Event_Date) %in% c(10:12)], na.rm = TRUE)
+          spwntmp <- mean(temp_data[month(x$Event_Date) %in% month_ids$spawning_months], na.rm = TRUE)
         }
       } else { 
-        spwntmp <- mean(temp_data[month(x$Event_Date) %in% c(10:12)], na.rm = TRUE)
+        spwntmp <- mean(temp_data[month(x$Event_Date) %in% month_ids$spawning_months], na.rm = TRUE)
       }
     } else {
       spwntmp <- NA
     }
-    
+        
     out <- c(maf, mspr, msum, covaf,
-             mspwn, mwin,
+             mspwn, mcool, mwin,
              covsp, maxan, minan,
              madp, cvdp, maxdp, mindp,
              ransp, ransm,
-             medwin, medspr, medsum,
+             medcool, medwin, medspr, medsum,
              minwin, spwntmp)
     
   }
   
   names(out) <- c("mannf_mld", "msprf_mld", "msumf_mld", "covaf_mld",
-                  "mspwn_mld", "mwin_mld",
+                  "mspwn_mld", "mcool_mld", "mwin_mld",
                   "covsp_mld", "maxan_mld", "minan_mld",
                   "madpth_m", "cvdpth_m", "maxdpth_m", "mindpth_m",
                   "rrang_spwn_mld", "rrang_sum_mld",
-                  "median_win_mld", "median_spr_mld", "median_sum_mld",
+                  "median_cool_mld", "median_win_mld",
+                  "median_spr_mld", "median_sum_mld",
                   "minwin_mld", "spwntmp_c")
   
   out
@@ -431,6 +453,8 @@ calc_flow_metrics <- function(x, na_thresh = 0.2) {
 
 # pull out preceding 12 months of data
 flow_tm1 <- function(x, flow, na_thresh = 0.2, year_lag = 0) {
+  
+  month_ids <- define_months()
   
   systmp <- paste0(tolower(x$system), "_r", x$reach)
   
@@ -471,19 +495,24 @@ flow_tm1 <- function(x, flow, na_thresh = 0.2, year_lag = 0) {
       if (ncol(flow_tmp) > 1)
         flow_tmp <- flow_tmp[, -grep("qc", colnames(flow_tmp))]
     }
-    lt_medwin <- median(flow_tmp[month(x$Event_Date) %in% c(1:12)], na.rm = TRUE)
-    lt_qwin <- quantile(flow_tmp[month(x$Event_Date) %in% c(5:7)], p = 0.1, na.rm = TRUE)
+    lt_med <- median(flow_tmp[month(x$Event_Date) %in% month_ids$all_months], na.rm = TRUE)
+    lt_qcool <- quantile(flow_tmp[month(x$Event_Date) %in% month_ids$cooler_months], p = 0.1, na.rm = TRUE)
     st_medwin <- out["median_win_mld"]
     new_vars <- c(out["median_spr_mld"] / st_medwin,
                   out["median_sum_mld"] / st_medwin,
-                  out["median_spr_mld"] / lt_medwin,
-                  out["median_sum_mld"] / lt_medwin,
-                  sum(flow_yr[month(tmp$Event_Date) %in% c(5:7)] < lt_qwin))
+                  out["median_spr_mld"] / lt_med,
+                  out["median_sum_mld"] / lt_med,
+                  out["maxan_mld"] / lt_med,
+                  out["median_cool_mld"] / lt_med,
+                  out["median_win_mld"] / lt_med,
+                  sum(flow_yr[month(tmp$Event_Date) %in% month_ids$cooler_months] < lt_qcool))
     names(new_vars) <- c("prop_spr_win", "prop_sum_win",
-                         "prop_spr_lt_win", "prop_sum_lt_win",
+                         "prop_spr_lt", "prop_sum_lt",
+                         "prop_maxan_lt",
+                         "prop_cool_lt", "prop_win_lt",
                          "numlow_days") 
   } else {
-    new_vars <- rep(NA, 5)
+    new_vars <- rep(NA, 8)
   }
   
   out <- c(out, new_vars)
