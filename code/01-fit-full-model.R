@@ -25,12 +25,9 @@ oti_data <- oti_data[oti_data$SPECIES == "Maccullochella peelii", ]
 # need to load flow data
 flow_data <- readRDS("data/flow-data-loaded.rds")
 
-# filter to MC
-flow_data <- flow_data[to_keep, ]
-
 # optional: subset to systems of interest
 systems_to_keep <- c("broken", "goulburn", "king", "murray", "ovens")
-flow_data <- flow_data[alldat$system %in% systems_to_keep, ]
+flow_data <- flow_data[flow_data$system %in% systems_to_keep, ]
 alldat <- alldat[alldat$system %in% systems_to_keep, ]
 
 # hack for now because ovens site data incomplete
@@ -56,7 +53,6 @@ survey_data$year_id <- rebase_index(survey_data$year)
 survey_data$length_mm[survey_data$dataset == "PADDED_TO_GET_FLOW_YEARS"] <- 0
 
 # remove any rows with missing data
-flow_data <- flow_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 survey_data <- survey_data[apply(survey_data, 1, function(x) !any(is.na(x))), ]
 
 # remove padded rows from survey data to calculate age matrix
@@ -149,7 +145,10 @@ years_of_surveys_matrix[years_of_surveys_matrix > 0] <- do.call(c, years_of_surv
 years_of_surveys_matrix <- t(years_of_surveys_matrix)
 
 # compile flow predictors
-all_vars <- c("rrang_spwn_mld", "prop_spr_lt", "prop_maxan_lt_ym1", "prop_sum_lt", "prop_win_lt", "spwntmp_c")
+all_vars <- c("spawning_variability", "prop_spring_lt",
+              "prop_max_antecedent_lt", "prop_summer_lt",
+              "prop_winter_lt",
+              "spawning_temp")
 var_sets <- c(
   list(all_vars),
   combn(all_vars, m = 5, simplify = FALSE),
@@ -158,82 +157,101 @@ var_sets <- c(
 )
 include_adults <- rep(TRUE, length(var_sets))
 
-# mod_id <- 1
-for (mod_id in seq_along(var_sets)) {
-  
-  vars_to_include <- var_sets[[mod_id]]
-  
-  # prepare flow data
-  flow_compiled <- sapply(vars_to_include,
-                          function(x) tapply(get(x, flow_data),
-                                             list(survey_data$system, survey_data$year),
-                                             mean, na.rm = TRUE))
-  sys_year <- data.frame(system = rep(sort(unique(survey_data$system_id)), times = length(unique(survey_data$year_id))),
-                         year = rep(sort(unique(survey_data$year_id)), each = length(unique(survey_data$system_id))))
-  sys_year <- sys_year[!is.na(flow_compiled[, 1]), ]
-  flow_compiled <- flow_compiled[!is.na(flow_compiled[, 1]), ]
-  
-  #   - King = Ovens (2004-200? filled with average of following 4 years)
-  #   - Murray 1993-2002 filled with average of Murray 2003-2008
-  if ("spwntmp_c" %in% vars_to_include) {
-    flow_compiled[sys_year$system == 4 & sys_year$year <= 10, "spwntmp_c"] <-
-      mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(11:16), "spwntmp_c"])
-    flow_compiled[sys_year$system == 3, "spwntmp_c"] <- 
-      flow_compiled[match(paste0("5", sys_year$year[sys_year$system == 3]), paste0(sys_year$system, sys_year$year)), "spwntmp_c"]
-    flow_compiled[sys_year$system == 3 & sys_year$year <= 15, "spwntmp_c"] <-
-      mean(flow_compiled[sys_year$system == 3 & sys_year$year %in% c(16:19), "spwntmp_c"])
-  }
-  
-  # standardised flow data
-  if (!is.matrix(flow_compiled))
-    flow_compiled <- matrix(flow_compiled, ncol = 1)
-  flow_std <- apply(flow_compiled, 2, scale)
-  flow_scales <- apply(flow_compiled, 2, extract_standards)
-  
-  # add total abundance as a predictor
-  years_of_surveys <- c(years_of_surveys_matrix)
-  years_of_surveys <- years_of_surveys[effort_full > 0]
-  effort_tmp <- effort_full[effort_full > 0]
-  for (i in seq_len(max(sys_year$system))) {
-    idx <- sys_year$system == i & years_of_surveys == 0
-    idy <- sys_year$system == i & years_of_surveys == 1
-    min_year <- min(sys_year$year[idy])
-    idy <- sys_year$system == i & sys_year$year %in% c(min_year:(min_year + 3))
-    effort_tmp[idx] <- mean(effort_tmp[idy])
-    adult_catch[idx] <- median(adult_catch[idy])
-  }
-  if (include_adults[mod_id]) {
-    flow_std <- cbind(flow_std, "adult_cpue" = c(scale(adult_catch / effort_tmp)))
-    flow_scales <- cbind(flow_scales, "adult_cpue" = c(mean(adult_catch / effort_tmp), sd(adult_catch / effort_tmp)))
-  }
-  
-  # save standardised flow values (need for final model, for plotting)
-  if (mod_id == 1)
-    saveRDS(flow_scales, file = "data/flow-standardisation.rds")
-  
-  # set future
-  # plan(sequential)
-  plan(multisession)
-  
-  # fit model
-  mod <- fit_ccr(
-    response = response_matrix,
-    length_age_matrix = length_age_matrix,
-    predictors = flow_std,
-    effort = effort,
-    system = system,
-    year = year,
-    sys_year_flow = sys_year,
-    include = list(sys_flow = TRUE, survey = TRUE, predictors = TRUE),
-    mcmc_settings = list(n_samples = 25000, warmup = 50000, chains = 12, thin = 1),
-    optim_start = FALSE
-  )
-  
-  # thin draws post sampling (errors in greta if thinned during)
-  mod$draws <- lapply(mod$draws, function(x) x[seq(1, nrow(x), by = 5), ])
-  
-  # save outputs
-  saveRDS(mod, file = paste0("outputs/fitted/full-model.rds"))
-  
+mod_id <- 1
+
+vars_to_include <- var_sets[[mod_id]]
+
+# prepare flow data
+sys_year <- data.frame(system = rep(sort(unique(survey_data$system_id)), times = length(unique(survey_data$year_id))),
+                       year = rep(sort(unique(survey_data$year_id)), each = length(unique(survey_data$system_id))))
+flow_data$system_coded <- match(flow_data$system, systems_to_keep)
+flow_data$year_coded <- as.numeric(flow_data$year) - 1992
+idx <- match(paste(sys_year$system, sys_year$year, sep = "_"),
+             paste(flow_data$system_coded, flow_data$year_coded, sep = "_"))
+flow_compiled <- flow_data[idx[!is.na(idx)], vars_to_include]
+flow_compiled <- apply(flow_compiled, 2, unlist)
+sys_year <- sys_year[!is.na(idx), ]
+
+#   - King = Ovens (2004-200? filled with average of following 4 years)
+#   - Murray 1993-2003 filled with average of Murray 2004-2008
+if ("spawning_temp" %in% vars_to_include) {
+  flow_compiled[sys_year$system == 4 & sys_year$year <= 10, "spawning_temp"] <-
+    mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(11:16), "spawning_temp"])
+  flow_compiled[sys_year$system == 4 & sys_year$year == 27, "spawning_temp"] <-
+    mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(22:26), "spawning_temp"])
+  flow_compiled[sys_year$system == 5 & sys_year$year == 13, "spawning_temp"] <-
+    mean(flow_compiled[sys_year$system == 5 & sys_year$year %in% c(12, 14), "spawning_temp"])
+  flow_compiled[sys_year$system == 3, "spawning_temp"] <- 
+    flow_compiled[match(paste("5", sys_year$year[sys_year$system == 3], sep = "_"),
+                        paste(sys_year$system, sys_year$year, sep = "_")), "spawning_temp"]
+  flow_compiled[sys_year$system == 3 & sys_year$year == 9, "spawning_temp"] <-
+    flow_compiled[sys_year$system == 3 & sys_year$year == 11, "spawning_temp"]
+  flow_compiled[sys_year$system == 2 & sys_year$year >= 22, "spawning_temp"] <-
+    mean(flow_compiled[sys_year$system == 2 & sys_year$year %in% c(16:21), "spawning_temp"])
 }
 
+# fill some 2019 values with 2018 equivalents
+col_sub <- grep("antecedent", colnames(flow_compiled), invert = TRUE)
+flow_compiled[sys_year$system == 2 & sys_year$year == 26, "prop_winter_lt"] <-
+  flow_compiled[sys_year$system == 2 & sys_year$year == 25, "prop_winter_lt"]
+flow_compiled[sys_year$system == 2 & sys_year$year == 27, col_sub] <-
+  flow_compiled[sys_year$system == 2 & sys_year$year == 26, col_sub]
+flow_compiled[sys_year$system == 4 & sys_year$year == 27, col_sub[1:4]] <-
+  flow_compiled[sys_year$system == 4 & sys_year$year == 26, col_sub[1:4]]
+flow_compiled[sys_year$system == 1 & sys_year$year == 27, "prop_winter_lt"] <-
+  flow_compiled[sys_year$system == 1 & sys_year$year == 26, "prop_winter_lt"]
+flow_compiled[sys_year$system == 3 & sys_year$year == 27, "prop_winter_lt"] <-
+  flow_compiled[sys_year$system == 3 & sys_year$year == 26, "prop_winter_lt"]
+flow_compiled[sys_year$system == 5 & sys_year$year == 27, "prop_winter_lt"] <-
+  flow_compiled[sys_year$system == 5 & sys_year$year == 26, "prop_winter_lt"]
+
+# standardised flow data
+if (!is.matrix(flow_compiled))
+  flow_compiled <- matrix(flow_compiled, ncol = 1)
+flow_std <- apply(flow_compiled, 2, scale)
+flow_scales <- apply(flow_compiled, 2, extract_standards)
+
+# add total abundance as a predictor
+years_of_surveys <- c(years_of_surveys_matrix)
+years_of_surveys <- years_of_surveys[effort_full > 0]
+effort_tmp <- effort_full[effort_full > 0]
+for (i in seq_len(max(sys_year$system))) {
+  idx <- sys_year$system == i & years_of_surveys == 0
+  idy <- sys_year$system == i & years_of_surveys == 1
+  min_year <- min(sys_year$year[idy])
+  idy <- sys_year$system == i & sys_year$year %in% c(min_year:(min_year + 3))
+  effort_tmp[idx] <- mean(effort_tmp[idy])
+  adult_catch[idx] <- median(adult_catch[idy])
+}
+if (include_adults[mod_id]) {
+  flow_std <- cbind(flow_std, "adult_cpue" = c(scale(adult_catch / effort_tmp)))
+  flow_scales <- cbind(flow_scales, "adult_cpue" = c(mean(adult_catch / effort_tmp), sd(adult_catch / effort_tmp)))
+}
+
+# save standardised flow values (need for final model, for plotting)
+if (mod_id == 1)
+  saveRDS(flow_scales, file = "data/flow-standardisation.rds")
+
+# set future
+# plan(sequential)
+plan(multisession)
+
+# fit model
+mod <- fit_ccr(
+  response = response_matrix,
+  length_age_matrix = length_age_matrix,
+  predictors = flow_std,
+  effort = effort,
+  system = system,
+  year = year,
+  sys_year_flow = sys_year,
+  include = list(sys_flow = TRUE, survey = TRUE, predictors = TRUE),
+  mcmc_settings = list(n_samples = 25000, warmup = 50000, chains = 12, thin = 1),
+  optim_start = FALSE
+)
+
+# thin draws post sampling (errors in greta if thinned during)
+mod$draws <- lapply(mod$draws, function(x) x[seq(1, nrow(x), by = 5), ])
+
+# save outputs
+saveRDS(mod, file = paste0("outputs/fitted/full-model.rds"))

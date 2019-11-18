@@ -149,7 +149,10 @@ years_of_surveys_matrix[years_of_surveys_matrix > 0] <- do.call(c, years_of_surv
 years_of_surveys_matrix <- t(years_of_surveys_matrix)
 
 # compile flow predictors
-all_vars <- c("rrang_spwn_mld", "prop_spr_lt", "prop_maxan_lt_ym1", "prop_sum_lt", "prop_win_lt", "spwntmp_c")
+all_vars <- c("spawning_variability", "prop_spring_lt",
+              "prop_max_antecedent_lt", "prop_summer_lt",
+              "prop_winter_lt",
+              "spawning_temp")
 var_sets <- c(
   list(all_vars),
   combn(all_vars, m = 5, simplify = FALSE),
@@ -163,25 +166,48 @@ for (mod_id in seq_along(var_sets)) {
   vars_to_include <- var_sets[[mod_id]]
   
   # prepare flow data
-  flow_compiled <- sapply(vars_to_include,
-                          function(x) tapply(get(x, flow_data),
-                                             list(survey_data$system, survey_data$year),
-                                             mean, na.rm = TRUE))
   sys_year <- data.frame(system = rep(sort(unique(survey_data$system_id)), times = length(unique(survey_data$year_id))),
                          year = rep(sort(unique(survey_data$year_id)), each = length(unique(survey_data$system_id))))
-  sys_year <- sys_year[!is.na(flow_compiled[, 1]), ]
-  flow_compiled <- flow_compiled[!is.na(flow_compiled[, 1]), ]
+  flow_data$system_coded <- match(flow_data$system, systems_to_keep)
+  flow_data$year_coded <- as.numeric(flow_data$year) - 1992
+  idx <- match(paste(sys_year$system, sys_year$year, sep = "_"),
+               paste(flow_data$system_coded, flow_data$year_coded, sep = "_"))
+  flow_compiled <- flow_data[idx[!is.na(idx)], vars_to_include]
+  flow_compiled <- apply(flow_compiled, 2, unlist)
+  sys_year <- sys_year[!is.na(idx), ]
   
   #   - King = Ovens (2004-200? filled with average of following 4 years)
-  #   - Murray 1993-2002 filled with average of Murray 2003-2008
-  if ("spwntmp_c" %in% vars_to_include) {
-    flow_compiled[sys_year$system == 4 & sys_year$year <= 10, "spwntmp_c"] <-
-      mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(11:16), "spwntmp_c"])
-    flow_compiled[sys_year$system == 3, "spwntmp_c"] <- 
-      flow_compiled[match(paste0("5", sys_year$year[sys_year$system == 3]), paste0(sys_year$system, sys_year$year)), "spwntmp_c"]
-    flow_compiled[sys_year$system == 3 & sys_year$year <= 15, "spwntmp_c"] <-
-      mean(flow_compiled[sys_year$system == 3 & sys_year$year %in% c(16:19), "spwntmp_c"])
+  #   - Murray 1993-2003 filled with average of Murray 2004-2008
+  if ("spawning_temp" %in% vars_to_include) {
+    flow_compiled[sys_year$system == 4 & sys_year$year <= 10, "spawning_temp"] <-
+      mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(11:16), "spawning_temp"])
+    flow_compiled[sys_year$system == 4 & sys_year$year == 27, "spawning_temp"] <-
+      mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(22:26), "spawning_temp"])
+    flow_compiled[sys_year$system == 5 & sys_year$year == 13, "spawning_temp"] <-
+      mean(flow_compiled[sys_year$system == 5 & sys_year$year %in% c(12, 14), "spawning_temp"])
+    flow_compiled[sys_year$system == 3, "spawning_temp"] <- 
+      flow_compiled[match(paste("5", sys_year$year[sys_year$system == 3], sep = "_"),
+                          paste(sys_year$system, sys_year$year, sep = "_")), "spawning_temp"]
+    flow_compiled[sys_year$system == 3 & sys_year$year == 9, "spawning_temp"] <-
+      flow_compiled[sys_year$system == 3 & sys_year$year == 11, "spawning_temp"]
+    flow_compiled[sys_year$system == 2 & sys_year$year >= 22, "spawning_temp"] <-
+      mean(flow_compiled[sys_year$system == 2 & sys_year$year %in% c(16:21), "spawning_temp"])
   }
+  
+  # fill some 2019 values with 2018 equivalents
+  col_sub <- grep("antecedent", colnames(flow_compiled), invert = TRUE)
+  flow_compiled[sys_year$system == 2 & sys_year$year == 26, "prop_winter_lt"] <-
+    flow_compiled[sys_year$system == 2 & sys_year$year == 25, "prop_winter_lt"]
+  flow_compiled[sys_year$system == 2 & sys_year$year == 27, col_sub] <-
+    flow_compiled[sys_year$system == 2 & sys_year$year == 26, col_sub]
+  flow_compiled[sys_year$system == 4 & sys_year$year == 27, col_sub[1:4]] <-
+    flow_compiled[sys_year$system == 4 & sys_year$year == 26, col_sub[1:4]]
+  flow_compiled[sys_year$system == 1 & sys_year$year == 27, "prop_winter_lt"] <-
+    flow_compiled[sys_year$system == 1 & sys_year$year == 26, "prop_winter_lt"]
+  flow_compiled[sys_year$system == 3 & sys_year$year == 27, "prop_winter_lt"] <-
+    flow_compiled[sys_year$system == 3 & sys_year$year == 26, "prop_winter_lt"]
+  flow_compiled[sys_year$system == 5 & sys_year$year == 27, "prop_winter_lt"] <-
+    flow_compiled[sys_year$system == 5 & sys_year$year == 26, "prop_winter_lt"]
   
   # standardised flow data
   if (!is.matrix(flow_compiled))

@@ -27,7 +27,7 @@ data_matrix <- rbind(data_matrix, padded_years)
 saveRDS(data_matrix, file = "data/survey-data-loaded.rds")
 
 # load the flow data
-source("code/load-flow-data-by-site.R")
+source("code/load-flow-data-by-year.R")
 
 # save flow data
 saveRDS(flow_data, file = "data/flow-data-loaded.rds")
