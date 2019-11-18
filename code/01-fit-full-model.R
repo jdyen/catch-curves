@@ -214,8 +214,7 @@ if (mod_id == 1)
   saveRDS(flow_scales, file = "data/flow-standardisation.rds")
 
 # set future
-# plan(sequential)
-plan(multisession)
+plan(sequential)
 
 # fit model
 mod <- fit_ccr(
