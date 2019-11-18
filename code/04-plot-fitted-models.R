@@ -2,6 +2,7 @@
 
 # load some helper functions
 source("code/helpers.R")
+source("code/plot_functions.R")
 source("code/fit_ccr.R")
 
 # load fitted models

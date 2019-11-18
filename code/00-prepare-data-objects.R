@@ -6,6 +6,7 @@ library(dplyr)
 
 # load some helper functions
 source("code/helpers.R")
+source("code/flow_functions.R")
 
 # load the data
 source("code/load-survey-data.R")

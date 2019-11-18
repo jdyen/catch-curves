@@ -177,8 +177,6 @@ sys_year <- sys_year[!is.na(idx), ]
 if ("spawning_temp" %in% vars_to_include) {
   flow_compiled[sys_year$system == 4 & sys_year$year <= 10, "spawning_temp"] <-
     mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(11:16), "spawning_temp"])
-  flow_compiled[sys_year$system == 4 & sys_year$year == 27, "spawning_temp"] <-
-    mean(flow_compiled[sys_year$system == 4 & sys_year$year %in% c(22:26), "spawning_temp"])
   flow_compiled[sys_year$system == 5 & sys_year$year == 13, "spawning_temp"] <-
     mean(flow_compiled[sys_year$system == 5 & sys_year$year %in% c(12, 14), "spawning_temp"])
   flow_compiled[sys_year$system == 3, "spawning_temp"] <- 
@@ -186,24 +184,7 @@ if ("spawning_temp" %in% vars_to_include) {
                         paste(sys_year$system, sys_year$year, sep = "_")), "spawning_temp"]
   flow_compiled[sys_year$system == 3 & sys_year$year == 9, "spawning_temp"] <-
     flow_compiled[sys_year$system == 3 & sys_year$year == 11, "spawning_temp"]
-  flow_compiled[sys_year$system == 2 & sys_year$year >= 22, "spawning_temp"] <-
-    mean(flow_compiled[sys_year$system == 2 & sys_year$year %in% c(16:21), "spawning_temp"])
 }
-
-# fill some 2019 values with 2018 equivalents
-col_sub <- grep("antecedent", colnames(flow_compiled), invert = TRUE)
-flow_compiled[sys_year$system == 2 & sys_year$year == 26, "prop_winter_lt"] <-
-  flow_compiled[sys_year$system == 2 & sys_year$year == 25, "prop_winter_lt"]
-flow_compiled[sys_year$system == 2 & sys_year$year == 27, col_sub] <-
-  flow_compiled[sys_year$system == 2 & sys_year$year == 26, col_sub]
-flow_compiled[sys_year$system == 4 & sys_year$year == 27, col_sub[1:4]] <-
-  flow_compiled[sys_year$system == 4 & sys_year$year == 26, col_sub[1:4]]
-flow_compiled[sys_year$system == 1 & sys_year$year == 27, "prop_winter_lt"] <-
-  flow_compiled[sys_year$system == 1 & sys_year$year == 26, "prop_winter_lt"]
-flow_compiled[sys_year$system == 3 & sys_year$year == 27, "prop_winter_lt"] <-
-  flow_compiled[sys_year$system == 3 & sys_year$year == 26, "prop_winter_lt"]
-flow_compiled[sys_year$system == 5 & sys_year$year == 27, "prop_winter_lt"] <-
-  flow_compiled[sys_year$system == 5 & sys_year$year == 26, "prop_winter_lt"]
 
 # standardised flow data
 if (!is.matrix(flow_compiled))
