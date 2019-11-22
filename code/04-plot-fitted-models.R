@@ -27,12 +27,12 @@ for (i in seq_along(system_names)) {
 sys_to_plot <- c(1:5)
 year_to_plot <- 13
 vars_to_plot <- colnames(mod$data$predictors)
-var_names <- c("rrang_spwn_mld" = "Proportional variability in spawning flows",
-               "prop_spr_lt" = "Spring flow relative to long-term flow",
-               "prop_sum_lt" = "Summer flow relative to long-term flow",
-               "prop_win_lt" = "Winter flow relative to long-term flow",
-               "prop_maxan_lt_ym1" = "Antecedent maximum flow relative to long-term flow",
-               "spwntmp_c" = "Temperature during spawning months",
+var_names <- c("spawning_variability" = "Proportional variability in spawning flows",
+               "prop_spring_lt" = "Spring flow relative to long-term flow",
+               "prop_summer_lt" = "Summer flow relative to long-term flow",
+               "prop_winter_lt" = "Winter flow relative to long-term flow",
+               "prop_max_antecedent_lt" = "Antecedent maximum flow relative to long-term flow",
+               "spawning_temp" = "Temperature during spawning months",
                "adult_cpue" = "Adult CPUE")
 var_names <- var_names[vars_to_plot]
 
@@ -107,12 +107,12 @@ legend(legend = system_names[system_order],
 dev.off()
 
 # pull out Bayesian P-values (P(effect != 0))
-var_names2 <- c("rrang_spwn_mld" = "Proportional variability in spawning flows",
-                "prop_spr_lt" = "Spring flow relative to long-term flow",
-                "prop_sum_lt" = "Summer flow relative to long-term flow",
-                "prop_win_lt" = "Winter flow relative to long-term flow",
-                "prop_maxan_lt_ym1" = "Antecedent maximum flow relative to long-term flow",
-                "spwntmp_c" = "Temperature during spawning months",
+var_names2 <- c("spawning_variability" = "Proportional variability in spawning flows",
+                "prop_spring_lt" = "Spring flow relative to long-term flow",
+                "prop_summer_lt" = "Summer flow relative to long-term flow",
+                "prop_winter_lt" = "Winter flow relative to long-term flow",
+                "prop_max_antecedent_lt" = "Antecedent maximum flow relative to long-term flow",
+                "spawning_temp" = "Temperature during spawning months",
                 "adult_cpue" = "Adult CPUE")
 
 pr_pos <- function(x) 
@@ -284,17 +284,14 @@ test_data <-  list(length_age_matrix = mod$data$length_age_matrix,
                    system = sys_ids,
                    year = year_ids,
                    predictors = pred_set,
-                   effort = effort_seq)
-max_age <- 3
+                   effort = rep(1000, nrow(pred_set)))
 fitted_all <- predict(mod, test_data, lengths = FALSE, survey = FALSE, thin = 10)
 fitted_upper_all <- exp(apply(fitted_all, c(2, 3), quantile, p = 0.4))
 fitted_lower_all <- exp(apply(fitted_all, c(2, 3), quantile, p = 0.6))
 fitted_all <- exp(apply(fitted_all, c(2, 3), median))
-fitted_all <- fitted_all[, seq_len(max_age + 1)]
-fitted_upper_all <- fitted_upper_all[, seq_len(max_age + 1)]
-fitted_lower_all <- fitted_lower_all[, seq_len(max_age + 1)]
 
 unique_systems <- unique(mod$data$system)
+unique_systems <- c(4, 5, 2, 3, 1)
 for (i in unique_systems) {
 
   idx <- sys_sub == i
@@ -319,7 +316,7 @@ for (i in unique_systems) {
        bty = "l",
        las = 1,
        xaxt = "n",
-       ylim = range(c(plot_values[, 1], plot_upper[, 1], plot_lower[, 1]), na.rm = TRUE))
+       ylim = range(c(0, plot_values[, 1], plot_upper[, 1], plot_lower[, 1]), na.rm = TRUE))
   to_keep <- !is.na(plot_upper[, 1])
   polygon(c(xplot[to_keep], rev(xplot[to_keep])),
           c(plot_upper[to_keep, 1], rev(plot_lower[to_keep, 1])),
@@ -328,9 +325,9 @@ for (i in unique_systems) {
   lines(plot_values[, 1] ~ xplot, col = "black", lwd = 2)
   axis(1, at = seq(2, nrow(plot_values), by = 2), labels = seq(2000, 2018, by = 2))
   mtext(system_names[i], side = 3, line = 0.5, adj = 1, cex = 1.1)
-  if (i == 3)
-    mtext("Year", side = 1, line = 2.5, adj = 0.5, cex = 1)
   if (i == 1)
+    mtext("Year", side = 1, line = 2.5, adj = 0.5, cex = 1)
+  if (i == 2)
     mtext("Number of recruits per 1000 EF seconds", side = 2, line = 2.5, adj = 0.5, cex = 1)
 
 }
