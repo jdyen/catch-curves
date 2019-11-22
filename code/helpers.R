@@ -350,18 +350,6 @@ system_switch_fun <- function(x) {
   
 }
 
-# set month definitions
-define_months <- function() {
-  list(
-    all_months = c(1:12),
-    summer_months = c(12, 1:3),
-    cooler_months = c(5:7),
-    winter_months = c(6:8),
-    spawning_months = c(10:12),
-    spring_months = c(9:11)
-  )
-}
-
 switch_names <- function(x) {
   
   out <- rep(NA, length(x))

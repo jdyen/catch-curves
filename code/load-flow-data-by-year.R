@@ -38,10 +38,10 @@ system_by_year <- paste(data_matrix$system, year(data_matrix$date_formatted), se
 unique_sys_years <- unique(system_by_year)
 idx <- match(unique_sys_years, system_by_year)
 data_sub <- data_matrix[idx, ]
-out_test <- sapply(seq_len(nrow(data_sub)),
-                   calc_flow,
-                   data = data_sub,
-                   predictors = predictors,
+out_test <- sapply(X = seq_len(nrow(data_sub)),
+                   FUN = calculate_flow_metrics,
+                   survey_data = data_sub,
+                   flow_data = predictors,
                    na_thresh = 0.2)
 flow_data <- t(out_test)
 

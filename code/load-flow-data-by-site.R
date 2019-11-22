@@ -34,23 +34,12 @@ predictors$ovens_wangaratta$water_temp_c <-
                                                 predictors$ovens_peechelba$Event_Date)]
 
 # calculate lag-0 flow metrics
-out_test <- sapply(seq_len(nrow(data_matrix)),
-                   calc_flow_fn,
-                   data = data_matrix,
-                   predictors = predictors,
+out_test <- sapply(X = seq_len(nrow(data_matrix)),
+                   FUN = calculate_flow_metrics,
+                   survey_data = data_matrix,
+                   flow_data = predictors,
                    na_thresh = 0.2)
 flow_data <- t(out_test)
-
-# repeat to get data lagged by 1 year
-out_ym1 <- sapply(seq_len(nrow(data_matrix)),
-                  calc_flow_fn,
-                  data = data_matrix, 
-                  predictors = predictors,
-                  na_thresh = 0.2,
-                  year_lag = 1)
-out_ym1 <- t(out_ym1)
-colnames(out_ym1) <- paste0(colnames(flow_data), "_ym1")
-flow_data <- cbind(flow_data, out_ym1)
 
 # easier to work with data.frame
 flow_data <- as.data.frame(flow_data)
