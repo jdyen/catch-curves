@@ -127,7 +127,7 @@ calculate_flow_metrics <- function(i, survey_data, flow_data, na_thresh = 0.2, y
     out$prop_max_antecedent_lt <- out$max_antecedent / lt_med
     out$prop_winter_lt <- out$median_winter / lt_med
     out$number_low_days <- sum(flow_vector[prior & cool_season] < lt_qcool)
-    
+
     # temperature calculations filtered to <= na_thresh missing vlaues
     if (!is.null(temp_vector)) {
       temp_prior <- temp_vector[prior & spawning]
